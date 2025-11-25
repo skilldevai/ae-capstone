@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""
+OmniTech Customer Support Chatbot - Gradio Interface
+═══════════════════════════════════════════════════════════════════════════════
+
+Complete Gradio interface with:
+- Customer chat view
+- Agent dashboard with RAG analytics
+- MCP protocol monitor
+- Knowledge base search
+
+This integrates with the RAG agent and MCP server.
+"""
+
+import gradio as gr
+import json
+import time
+from datetime import datetime
+from typing import Dict, List, Any
+
+# Import the agent
+try:
+    from rag_agent import SyncAgent
+    AGENT_AVAILABLE = True
+except ImportError:
+    AGENT_AVAILABLE = False
+    print("Warning: rag_agent not found. Running in demo mode.")
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 1. Application State                                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+class AppState:
+    """Global application state."""
+
+    def __init__(self):
+        self.agent = None
+        self.conversation_history: List[Dict] = []
+        self.metrics = {
+            'total_queries': 0,
+            'resolved_queries': 0,
+            'tickets_created': 0
+        }
+
+    def initialize_agent(self) -> bool:
+        """Initialize the MCP agent."""
+        if not AGENT_AVAILABLE:
+            return False
+        if self.agent is None:
+            try:
+                self.agent = SyncAgent()
+                print("Agent initialized successfully")
+                return True
+            except Exception as e:
+                print(f"Failed to initialize agent: {e}")
+                return False
+        return True
+
+    def process_query(self, query: str, email: str) -> Dict[str, Any]:
+        """Process a query through the agent."""
+        if self.agent:
+            return self.agent.process_query(query, email)
+        else:
+            # Demo mode response
+            return {
+                "response": f"[Demo Mode] Received: {query}",
+                "workflow": "demo",
+                "confidence": 0.5
+            }
+
+    def get_mcp_stats(self) -> Dict[str, Any]:
+        """Get MCP server statistics."""
+        if self.agent:
+            return self.agent.get_server_stats()
+        return {"status": "Demo mode - no server"}
+
+    def search_knowledge(self, query: str, max_results: int = 3) -> List[Dict]:
+        """Search knowledge base directly via MCP."""
+        if self.agent:
+            try:
+                # Call the search_knowledge tool via the agent's internal method
+                import asyncio
+                result = self.agent.agent.loop.run_until_complete(
+                    self.agent.agent.agent.call_tool("search_knowledge", {
+                        "query": query,
+                        "max_results": max_results
+                    })
+                )
+                return result.get("matches", [])
+            except Exception as e:
+                print(f"Knowledge search error: {e}")
+        return []
+
+
+app_state = AppState()
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 2. Custom CSS                                                            ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+CUSTOM_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+.gradio-container {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    background: linear-gradient(to bottom, #f8fafc 0%, #ffffff 100%);
+}
+
+.nav-button {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px;
+    padding: 0.875rem 1.25rem;
+    margin: 0.375rem 0;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    color: #475569;
+}
+
+.nav-button:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1 !important;
+    transform: translateX(4px);
+}
+
+.metric-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin: 0.5rem 0;
+    transition: all 0.2s ease;
+}
+
+.metric-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 8px -2px rgba(0, 0, 0, 0.08);
+}
+
+.chat-message-user {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #3b82f6;
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+}
+
+.chat-message-agent {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #10b981;
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+}
+
+.tool-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 0.375rem 0;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.875rem;
+}
+"""
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 3. Helper Functions                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+def format_message(sender: str, content: str, timestamp: str) -> str:
+    """Format a chat message as HTML."""
+    msg_class = "chat-message-agent" if sender == "agent" else "chat-message-user"
+    sender_name = "AI Agent" if sender == "agent" else "You"
+    return f"""
+    <div class="{msg_class}">
+        <div style="font-weight: 600; margin-bottom: 0.5rem;">
+            {sender_name}
+            <span style="float: right; font-size: 0.875rem; color: #64748b;">{timestamp}</span>
+        </div>
+        <div style="line-height: 1.6;">{content}</div>
+    </div>
+    """
+
+
+def process_query_handler(query: str, customer_email: str, history: str):
+    """Process a query and update chat history."""
+    if not query.strip():
+        return history, "", "", ""
+
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    history += format_message("customer", query, timestamp)
+
+    # Initialize agent if needed
+    if not app_state.agent:
+        app_state.initialize_agent()
+
+    # Process query
+    result = app_state.process_query(query, customer_email)
+    response = result.get("response", "Error processing query")
+
+    # Add to history
+    app_state.conversation_history.append({
+        'sender': 'customer',
+        'content': query,
+        'timestamp': timestamp
+    })
+    app_state.conversation_history.append({
+        'sender': 'agent',
+        'content': response,
+        'timestamp': datetime.now().strftime("%H:%M:%S"),
+        'metadata': result
+    })
+
+    # Update metrics
+    app_state.metrics['total_queries'] += 1
+    if result.get('confidence', 0) > 0.7:
+        app_state.metrics['resolved_queries'] += 1
+    if result.get('ticket_created'):
+        app_state.metrics['tickets_created'] += 1
+
+    history += format_message("agent", response, datetime.now().strftime("%H:%M:%S"))
+
+    # Get prompt and response for debug display
+    prompt = result.get('llm_prompt', 'No prompt available')
+    response_json = json.dumps({k: v for k, v in result.items() if k != 'llm_prompt'}, indent=2)
+
+    return history, "", prompt, response_json
+
+
+def generate_agent_dashboard() -> str:
+    """Generate the agent dashboard HTML."""
+    metrics = app_state.metrics
+    total = metrics['total_queries']
+    resolved = metrics['resolved_queries']
+    tickets = metrics['tickets_created']
+    rate = f"{(resolved/max(total,1)*100):.1f}%"
+
+    html = """
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h2>Agent Performance Dashboard</h2>
+        <p style="color: #64748b;">Real-time analytics and RAG pipeline metrics</p>
+    </div>
+    """
+
+    # Metrics row
+    html += f"""
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem;">
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem;">TOTAL QUERIES</h4>
+            <p style="font-size: 2rem; font-weight: bold; color: #1e293b; margin: 0;">{total}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem;">RESOLUTION RATE</h4>
+            <p style="font-size: 2rem; font-weight: bold; color: #10b981; margin: 0;">{rate}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem;">TICKETS CREATED</h4>
+            <p style="font-size: 2rem; font-weight: bold; color: #3b82f6; margin: 0;">{tickets}</p>
+        </div>
+    </div>
+    """
+
+    # Recent queries with RAG details
+    agent_msgs = [m for m in app_state.conversation_history if m['sender'] == 'agent']
+
+    if agent_msgs:
+        html += "<h3>Recent RAG Operations</h3>"
+
+        for i, msg in enumerate(agent_msgs[-5:], 1):
+            meta = msg.get('metadata', {})
+            workflow = meta.get('workflow', 'unknown')
+            category = meta.get('classification', {}).get('category', 'N/A')
+            sources = meta.get('sources', [])
+            confidence = meta.get('confidence', 0)
+
+            html += f"""
+            <div class="metric-card">
+                <h4>Query {i} - {msg.get('timestamp', 'N/A')}</h4>
+                <p><strong>Workflow:</strong> {workflow}</p>
+                <p><strong>Category:</strong> {category}</p>
+                <p><strong>Confidence:</strong> {confidence:.2%}</p>
+                <p><strong>Sources:</strong> {', '.join(sources) if sources else 'None'}</p>
+            </div>
+            """
+    else:
+        html += "<p style='color: #64748b;'>No queries processed yet. Start chatting to see RAG analytics.</p>"
+
+    return html
+
+
+def generate_mcp_monitor() -> str:
+    """Generate the MCP monitor HTML."""
+    stats = app_state.get_mcp_stats()
+
+    html = """
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h2>MCP Protocol Monitor</h2>
+        <p style="color: #64748b;">Server status and tool activity</p>
+    </div>
+    """
+
+    if isinstance(stats, dict) and 'error' not in stats:
+        # Server metrics
+        html += f"""
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem;">
+            <div class="metric-card">
+                <h4 style="color: #64748b; font-size: 0.875rem;">TOTAL REQUESTS</h4>
+                <p style="font-size: 2rem; font-weight: bold;">{stats.get('total_requests', 0)}</p>
+            </div>
+            <div class="metric-card">
+                <h4 style="color: #64748b; font-size: 0.875rem;">KNOWLEDGE DOCS</h4>
+                <p style="font-size: 2rem; font-weight: bold; color: #3b82f6;">{stats.get('knowledge_documents', 0)}</p>
+            </div>
+            <div class="metric-card">
+                <h4 style="color: #64748b; font-size: 0.875rem;">CUSTOMERS</h4>
+                <p style="font-size: 2rem; font-weight: bold; color: #10b981;">{stats.get('customers_in_db', 0)}</p>
+            </div>
+        </div>
+        """
+
+        # Available tools
+        tools = stats.get('tools_available', [])
+        if tools:
+            html += "<h3>Available MCP Tools</h3><div class='metric-card'>"
+            tool_descriptions = {
+                'classify_query': 'Classify customer queries into support categories',
+                'get_query_template': 'Get prompt templates for categories',
+                'list_categories': 'List all support categories',
+                'search_knowledge': 'Search the knowledge base',
+                'get_knowledge_for_query': 'Get knowledge for a category',
+                'lookup_customer': 'Look up customer information',
+                'create_support_ticket': 'Create support tickets',
+                'get_server_stats': 'Get server statistics'
+            }
+            for tool in tools:
+                desc = tool_descriptions.get(tool, 'MCP tool')
+                html += f"""
+                <div class="tool-card">
+                    <strong>{tool}</strong>
+                    <p style="margin: 0.25rem 0 0 1rem; color: #64748b; font-size: 0.875rem;">{desc}</p>
+                </div>
+                """
+            html += "</div>"
+    else:
+        html += "<p style='color: #64748b;'>Server statistics not available. Initialize the agent first.</p>"
+
+    # Recent MCP calls
+    if app_state.agent:
+        mcp_log = app_state.agent.get_mcp_log()
+        if mcp_log:
+            html += "<h3 style='margin-top: 2rem;'>Recent MCP Calls</h3>"
+            for entry in mcp_log[-10:]:
+                html += f"""
+                <div class="metric-card">
+                    <strong>{entry['tool']}</strong>
+                    <span style="float: right; color: #64748b;">{entry['duration_ms']}ms</span>
+                    <p style="color: #64748b; font-size: 0.875rem;">
+                        {entry['timestamp']} - {'✓' if entry['success'] else '✗'}
+                    </p>
+                </div>
+                """
+
+    return html
+
+
+def clear_chat():
+    """Clear conversation history."""
+    app_state.conversation_history = []
+    app_state.metrics = {'total_queries': 0, 'resolved_queries': 0, 'tickets_created': 0}
+    return "", "", ""
+
+
+def get_status() -> str:
+    """Get system status."""
+    if app_state.agent:
+        tools = app_state.agent.get_available_tools()
+        return f"**System Online**\n\nMCP Tools: {len(tools)}\n\nReady to assist"
+    else:
+        return "**Initializing...**\n\nClick 'Send' to start"
+
+
+def search_knowledge_direct(search_query: str, max_results: int) -> str:
+    """Direct knowledge base search and format results as HTML."""
+    if not search_query.strip():
+        return """
+        <div class="metric-card">
+            <p style="color: #64748b;">Enter a search query to search the knowledge base.</p>
+        </div>
+        """
+
+    results = app_state.search_knowledge(search_query, int(max_results))
+
+    if not results:
+        return """
+        <div class="metric-card">
+            <p style="color: #64748b;">No results found. Try different search terms.</p>
+        </div>
+        """
+
+    html = f"""
+    <div style="margin-bottom: 1rem;">
+        <h3>Search Results for: "{search_query}"</h3>
+        <p style="color: #64748b;">Found {len(results)} documents</p>
+    </div>
+    """
+
+    for i, doc in enumerate(results, 1):
+        similarity = doc.get('similarity', 0)
+        category = doc.get('category', 'unknown')
+        content = doc.get('content', '')[:500]
+        source = doc.get('source', 'Unknown')
+
+        # Visual similarity bar
+        bar_filled = int(similarity * 10) if similarity > 0 else 0
+        similarity_bar = "█" * bar_filled + "░" * (10 - bar_filled)
+
+        html += f"""
+        <div class="metric-card">
+            <h4>Result {i}: {category.replace('_', ' ').title()}</h4>
+            <p><strong>Source:</strong> {source}</p>
+            <p><strong>Similarity:</strong> {similarity:.3f} <span style="font-family: monospace;">{similarity_bar}</span></p>
+            <div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border-left: 3px solid #3b82f6;">
+                <p style="color: #475569; line-height: 1.6;">{content}...</p>
+            </div>
+        </div>
+        """
+
+    return html
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 4. Gradio Interface                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+with gr.Blocks(css=CUSTOM_CSS, theme=gr.themes.Soft(), title="OmniTech Support") as demo:
+
+    # Header
+    gr.HTML("""
+    <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%);
+                padding: 2rem;
+                border-radius: 14px;
+                color: white;
+                text-align: center;
+                margin-bottom: 2rem;">
+        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700;">
+            OmniTech Customer Support
+        </h1>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">
+            AI-Powered Support • Classification RAG • MCP Protocol
+        </p>
+    </div>
+    """)
+
+    with gr.Row():
+        # Sidebar
+        with gr.Column(scale=1):
+            gr.Markdown("## Navigation")
+
+            customer_btn = gr.Button("Customer Chat", variant="primary", elem_classes=["nav-button"])
+            agent_btn = gr.Button("Agent Dashboard", elem_classes=["nav-button"])
+            mcp_btn = gr.Button("MCP Monitor", elem_classes=["nav-button"])
+            knowledge_btn = gr.Button("Knowledge Search", elem_classes=["nav-button"])
+
+            gr.Markdown("---")
+            gr.Markdown("### Status")
+            status_display = gr.Markdown(get_status())
+
+        # Main content
+        with gr.Column(scale=4):
+
+            # Customer Chat View
+            with gr.Column(visible=True) as customer_view:
+                gr.Markdown("## Customer Support Chat")
+
+                customer_email = gr.Dropdown(
+                    label="Customer Email",
+                    choices=["john.doe@email.com", "sarah.smith@email.com", "mike.johnson@email.com", "guest@example.com"],
+                    value="john.doe@email.com"
+                )
+
+                chat_display = gr.HTML(
+                    value="<div style='padding: 1rem; color: #64748b;'>Start a conversation...</div>"
+                )
+
+                query_input = gr.Textbox(
+                    label="Your Message",
+                    placeholder="Type your question here...",
+                    lines=2
+                )
+
+                with gr.Row():
+                    send_btn = gr.Button("Send", variant="primary", scale=2)
+                    clear_btn = gr.Button("Clear", scale=1)
+
+                gr.Markdown("#### Quick Actions")
+                with gr.Row():
+                    q1 = gr.Button("Password Reset")
+                    q2 = gr.Button("Device Issue")
+                    q3 = gr.Button("Return Policy")
+                    q4 = gr.Button("Track Order")
+
+                gr.Markdown("---")
+                gr.Markdown("### Debug Info")
+                with gr.Row():
+                    with gr.Column():
+                        prompt_display = gr.Textbox(label="LLM Prompt", lines=8, interactive=False)
+                    with gr.Column():
+                        response_display = gr.Textbox(label="Full Response", lines=8, interactive=False)
+
+            # Agent Dashboard View
+            with gr.Column(visible=False) as agent_view:
+                agent_dashboard = gr.HTML(generate_agent_dashboard())
+                refresh_agent_btn = gr.Button("Refresh Dashboard")
+
+            # MCP Monitor View
+            with gr.Column(visible=False) as mcp_view:
+                mcp_monitor = gr.HTML(generate_mcp_monitor())
+                refresh_mcp_btn = gr.Button("Refresh Monitor")
+
+            # Knowledge Search View
+            with gr.Column(visible=False) as knowledge_view:
+                gr.Markdown("## Knowledge Base Search")
+                gr.Markdown("Search the OmniTech product documentation directly.")
+
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        search_input = gr.Textbox(
+                            label="Search Query",
+                            placeholder="Enter search terms (e.g., 'password reset', 'warranty', 'smart home')",
+                            lines=1
+                        )
+                    with gr.Column(scale=1):
+                        search_results_slider = gr.Slider(
+                            label="Max Results",
+                            minimum=1,
+                            maximum=10,
+                            value=3,
+                            step=1
+                        )
+
+                search_btn = gr.Button("Search Knowledge Base", variant="primary")
+
+                knowledge_results = gr.HTML(
+                    value="""
+                    <div class="metric-card">
+                        <p style="color: #64748b;">Enter a search query to explore the OmniTech knowledge base.</p>
+                        <p style="color: #64748b; font-size: 0.875rem;">
+                            Try queries like: "password reset", "device troubleshooting", "return policy", "warranty information"
+                        </p>
+                    </div>
+                    """
+                )
+
+                gr.Markdown("---")
+                gr.Markdown("### Knowledge Base Categories")
+                gr.HTML("""
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                    <div class="metric-card">
+                        <h4 style="color: #3b82f6;">Account Security</h4>
+                        <p style="color: #64748b; font-size: 0.875rem;">Password reset, 2FA, account recovery</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4 style="color: #10b981;">Device Support</h4>
+                        <p style="color: #64748b; font-size: 0.875rem;">Troubleshooting, setup, compatibility</p>
+                    </div>
+                    <div class="metric-card">
+                        <h4 style="color: #f59e0b;">Shipping & Returns</h4>
+                        <p style="color: #64748b; font-size: 0.875rem;">Order tracking, return policy, refunds</p>
+                    </div>
+                </div>
+                """)
+
+    # Navigation handlers
+    def switch_to_customer():
+        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+
+    def switch_to_agent():
+        return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), generate_agent_dashboard()
+
+    def switch_to_mcp():
+        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), generate_mcp_monitor()
+
+    def switch_to_knowledge():
+        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+
+    customer_btn.click(switch_to_customer, outputs=[customer_view, agent_view, mcp_view, knowledge_view])
+    agent_btn.click(switch_to_agent, outputs=[customer_view, agent_view, mcp_view, knowledge_view, agent_dashboard])
+    mcp_btn.click(switch_to_mcp, outputs=[customer_view, agent_view, mcp_view, knowledge_view, mcp_monitor])
+    knowledge_btn.click(switch_to_knowledge, outputs=[customer_view, agent_view, mcp_view, knowledge_view])
+
+    # Chat handlers
+    send_btn.click(
+        process_query_handler,
+        inputs=[query_input, customer_email, chat_display],
+        outputs=[chat_display, query_input, prompt_display, response_display]
+    )
+    query_input.submit(
+        process_query_handler,
+        inputs=[query_input, customer_email, chat_display],
+        outputs=[chat_display, query_input, prompt_display, response_display]
+    )
+    clear_btn.click(clear_chat, outputs=[chat_display, prompt_display, response_display])
+
+    # Quick action handlers
+    q1.click(lambda: "How do I reset my password?", outputs=query_input)
+    q2.click(lambda: "My device won't turn on", outputs=query_input)
+    q3.click(lambda: "What is your return policy?", outputs=query_input)
+    q4.click(lambda: "How can I track my order?", outputs=query_input)
+
+    # Refresh handlers
+    refresh_agent_btn.click(lambda: generate_agent_dashboard(), outputs=agent_dashboard)
+    refresh_mcp_btn.click(lambda: generate_mcp_monitor(), outputs=mcp_monitor)
+
+    # Knowledge search handler
+    search_btn.click(
+        search_knowledge_direct,
+        inputs=[search_input, search_results_slider],
+        outputs=knowledge_results
+    )
+    search_input.submit(
+        search_knowledge_direct,
+        inputs=[search_input, search_results_slider],
+        outputs=knowledge_results
+    )
+
+    # Initialize on load
+    demo.load(lambda: (app_state.initialize_agent(), get_status())[1], outputs=status_display)
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 5. Main Entry Point                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("OmniTech Customer Support Chatbot")
+    print("=" * 60)
+    print(f"Agent available: {AGENT_AVAILABLE}")
+    print("Starting Gradio interface...")
+    print("=" * 60)
+
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)

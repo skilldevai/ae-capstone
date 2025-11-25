@@ -1,0 +1,601 @@
+#!/usr/bin/env python3
+"""
+MCP Server for OmniTech Customer Support Chatbot
+═══════════════════════════════════════════════════════════════════════════════
+
+This server provides customer support capabilities via MCP protocol:
+1. CLASSIFICATION - Determine which support category matches a query
+2. KNOWLEDGE RETRIEVAL - RAG-based search through OmniTech PDFs
+3. PROMPT TEMPLATES - Structured prompts for consistent responses
+4. CUSTOMER DATA - Customer lookup and ticket creation
+
+STARTING POINT: This file contains the classification and knowledge components
+from mcp_server_classification.py. You will enhance it through the labs.
+
+Lab 1: Add customer database and support ticket tools
+Lab 2: Add server statistics and monitoring
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# MCP imports
+try:
+    from mcp.server.models import InitializationOptions
+    from mcp.server import NotificationOptions, Server
+    from mcp.types import Tool, TextContent
+    import mcp.types as types
+    from mcp.server.stdio import stdio_server
+except ImportError:
+    print("MCP not installed. Install with: pip install mcp")
+    sys.exit(1)
+
+import chromadb
+from chromadb.config import Settings
+import pypdf
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('mcp_server.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("omnitech-support-mcp")
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 1. Configuration and Constants                                           ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+KNOWLEDGE_BASE_DIR = Path("knowledge_base_pdfs")
+
+# Document categories mapping filenames to support categories
+DOCUMENT_CATEGORIES = {
+    "account_security": ["OmniTech_Account_Security_Handbook.pdf"],
+    "device_troubleshooting": ["OmniTech_Device_Troubleshooting_Manual.pdf"],
+    "shipping_inquiry": ["OmniTech_Global_Shipping_Logistics.pdf"],
+    "returns_refunds": ["OmniTech_Returns_Policy_2024.pdf"],
+}
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 2. Canonical Query Definitions (from mcp_server_classification.py)       ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+CANONICAL_QUERIES = {
+    "account_security": {
+        "description": "Account security, passwords, 2FA, and account recovery",
+        "prompt_template": """You are an OmniTech customer support specialist focused on account security.
+
+Based on the following documentation:
+{knowledge}
+
+Please help the customer with their security-related question: {query}
+
+Provide a clear, helpful response that:
+1. Directly addresses their security concern
+2. Includes step-by-step instructions if applicable
+3. Emphasizes security best practices
+4. Offers additional security tips when relevant
+
+Be professional, reassuring, and thorough.""",
+        "example_queries": [
+            "How do I reset my password?",
+            "Can you help me set up two-factor authentication?",
+            "What should I do if my account is compromised?",
+        ],
+        "keywords": ["password", "reset", "security", "2fa", "two-factor",
+                    "authentication", "account", "compromised", "hack", "secure",
+                    "login", "sign in", "access", "locked out"]
+    },
+
+    "device_troubleshooting": {
+        "description": "Technical issues, device problems, and troubleshooting",
+        "prompt_template": """You are an OmniTech technical support specialist.
+
+Based on the following troubleshooting documentation:
+{knowledge}
+
+Please help the customer with their device issue: {query}
+
+Provide a clear troubleshooting response that:
+1. Identifies the likely cause of the problem
+2. Offers step-by-step troubleshooting instructions
+3. Suggests preventive measures
+4. Indicates when professional repair might be needed
+
+Be patient, technical but accessible, and thorough.""",
+        "example_queries": [
+            "My device won't turn on",
+            "How do I perform a factory reset?",
+            "The screen is frozen",
+        ],
+        "keywords": ["device", "won't", "turn on", "frozen", "screen",
+                    "not working", "broken", "fix", "troubleshoot", "problem",
+                    "issue", "error", "crash", "slow", "battery", "overheat"]
+    },
+
+    "shipping_inquiry": {
+        "description": "Order tracking, delivery times, and shipping information",
+        "prompt_template": """You are an OmniTech shipping and logistics specialist.
+
+Based on the following shipping documentation:
+{knowledge}
+
+Please help the customer with their shipping question: {query}
+
+Provide helpful shipping information that:
+1. Answers their specific shipping question
+2. Provides relevant timeframes and policies
+3. Explains tracking and delivery options
+4. Mentions any special considerations
+
+Be informative, precise with timeframes, and helpful.""",
+        "example_queries": [
+            "When will my order arrive?",
+            "Do you ship internationally?",
+            "How can I track my package?",
+        ],
+        "keywords": ["ship", "shipping", "delivery", "track", "order", "arrive",
+                   "package", "international", "cost", "when will", "tracking"]
+    },
+
+    "returns_refunds": {
+        "description": "Return policies, refunds, warranties, and exchanges",
+        "prompt_template": """You are an OmniTech returns and warranty specialist.
+
+Based on the following returns policy documentation:
+{knowledge}
+
+Please help the customer with their returns/warranty question: {query}
+
+Provide a clear response about returns that:
+1. Explains the relevant policy clearly
+2. States timeframes and conditions
+3. Describes the return/refund process
+4. Mentions warranty coverage if applicable
+
+Be understanding, clear about policies, and helpful.""",
+        "example_queries": [
+            "What is your return policy?",
+            "How long do I have to return a product?",
+            "Is my device still under warranty?",
+        ],
+        "keywords": ["return", "refund", "warranty", "exchange", "policy",
+                  "money back", "defective", "replace", "damaged"]
+    },
+
+    "general_support": {
+        "description": "General customer assistance and other inquiries",
+        "prompt_template": """You are an OmniTech customer support representative.
+
+Based on the following documentation:
+{knowledge}
+
+Please help the customer with their question: {query}
+
+Provide a helpful, professional response that addresses their needs.""",
+        "example_queries": [
+            "How do I contact customer support?",
+            "Tell me about OmniTech products",
+        ],
+        "keywords": ["help", "support", "contact", "information", "about", "general"]
+    }
+}
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 3. MCP Server Class                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+class OmniTechSupportServer:
+    """MCP Server for OmniTech Customer Support"""
+
+    def __init__(self):
+        self.server = Server("omnitech-support")
+        self.knowledge_base = None
+        self.chroma_client = None
+        self.request_log = []
+
+        # TODO Lab 1: Add customer database
+        # self.customers = {}
+
+        self._setup_knowledge_base()
+        self._setup_tools()
+
+    # ─── Knowledge Base Setup ──────────────────────────────────────────────
+
+    def _load_pdf_documents(self) -> List[Dict]:
+        """Load and parse PDF documents from knowledge base directory."""
+        documents = []
+
+        if not KNOWLEDGE_BASE_DIR.exists():
+            logger.error(f"Knowledge base directory not found: {KNOWLEDGE_BASE_DIR}")
+            return documents
+
+        for filename in os.listdir(KNOWLEDGE_BASE_DIR):
+            if not filename.endswith('.pdf'):
+                continue
+
+            file_path = KNOWLEDGE_BASE_DIR / filename
+
+            # Determine category from filename
+            category = "general_support"
+            for cat, files in DOCUMENT_CATEGORIES.items():
+                if filename in files:
+                    category = cat
+                    break
+
+            try:
+                with open(file_path, 'rb') as f:
+                    pdf_reader = pypdf.PdfReader(f)
+                    text = ""
+                    for page in pdf_reader.pages:
+                        text += page.extract_text() + " "
+
+                text = re.sub(r'\s+', ' ', text.strip())
+
+                documents.append({
+                    "id": filename.replace('.pdf', ''),
+                    "text": text,
+                    "category": category,
+                    "source": filename
+                })
+
+                logger.info(f"Loaded: {filename} -> {category} ({len(text)} chars)")
+
+            except Exception as e:
+                logger.error(f"Failed to load {filename}: {e}")
+
+        return documents
+
+    def _setup_knowledge_base(self):
+        """Initialize ChromaDB and load documents."""
+        logger.info("Initializing knowledge base...")
+
+        self.chroma_client = chromadb.Client(Settings(anonymized_telemetry=False))
+
+        try:
+            self.chroma_client.delete_collection("omnitech_knowledge")
+        except:
+            pass
+
+        self.knowledge_base = self.chroma_client.create_collection("omnitech_knowledge")
+
+        documents = self._load_pdf_documents()
+
+        for doc in documents:
+            self.knowledge_base.add(
+                documents=[doc["text"]],
+                metadatas=[{
+                    "category": doc["category"],
+                    "source": doc["source"]
+                }],
+                ids=[doc["id"]]
+            )
+
+        logger.info(f"Knowledge base ready: {self.knowledge_base.count()} documents")
+
+    # ─── Tool Handlers ─────────────────────────────────────────────────────
+
+    async def _handle_classify_query(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Classify a customer query into a support category."""
+        user_query = arguments.get("user_query", "")
+        user_lower = user_query.lower()
+        scores = {}
+
+        # Score based on keyword matching
+        for query_name, config in CANONICAL_QUERIES.items():
+            score = 0
+            keywords = config.get("keywords", [])
+
+            for keyword in keywords:
+                if keyword in user_lower:
+                    score += 1
+
+            scores[query_name] = score / len(keywords) if keywords else 0
+
+        # Also check example queries
+        for query_name, config in CANONICAL_QUERIES.items():
+            for example in config["example_queries"]:
+                example_words = set(example.lower().split())
+                user_words = set(user_lower.split())
+                overlap = len(example_words.intersection(user_words))
+                if overlap > 0:
+                    similarity = overlap / max(len(example_words), len(user_words))
+                    scores[query_name] = max(scores.get(query_name, 0), similarity)
+
+        # Find best match
+        if not scores or max(scores.values()) == 0:
+            result = {
+                "suggested_query": "general_support",
+                "confidence": 0.3,
+                "alternatives": [],
+                "reason": "No specific category matched"
+            }
+        else:
+            best_query = max(scores, key=scores.get)
+            confidence = min(scores[best_query], 1.0)
+
+            alternatives = [
+                {"query": name, "score": round(score, 3)}
+                for name, score in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                if score > 0 and name != best_query
+            ][:2]
+
+            result = {
+                "suggested_query": best_query,
+                "confidence": round(confidence, 3),
+                "alternatives": alternatives,
+                "reason": f"Matched to {best_query}"
+            }
+
+        self._log_request("classify_query", {"user_query": user_query}, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    async def _handle_get_template(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Get prompt template for a support category."""
+        query_name = arguments.get("query_name", "")
+
+        if query_name not in CANONICAL_QUERIES:
+            result = {"error": f"Unknown category: {query_name}"}
+        else:
+            config = CANONICAL_QUERIES[query_name]
+            result = {
+                "template": config["prompt_template"],
+                "description": config["description"]
+            }
+
+        self._log_request("get_query_template", {"query_name": query_name}, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    async def _handle_list_categories(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """List all available support categories."""
+        categories = []
+        for name, config in CANONICAL_QUERIES.items():
+            categories.append({
+                "name": name,
+                "description": config["description"],
+                "example_queries": config["example_queries"][:3]
+            })
+
+        result = {"categories": categories}
+        self._log_request("list_categories", {}, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    async def _handle_search_knowledge(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Search knowledge base with optional category filter."""
+        query = arguments.get("query", "")
+        category = arguments.get("category", None)
+        max_results = arguments.get("max_results", 3)
+
+        where_clause = {"category": category} if category else None
+
+        results = self.knowledge_base.query(
+            query_texts=[query],
+            n_results=max_results,
+            where=where_clause,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        matches = []
+        if results["documents"] and results["documents"][0]:
+            for doc, meta, dist in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0]
+            ):
+                matches.append({
+                    "content": doc[:500] + "..." if len(doc) > 500 else doc,
+                    "category": meta.get("category", "unknown"),
+                    "source": meta.get("source", "Unknown"),
+                    "distance": dist,
+                    "similarity": round(1 - dist, 3) if dist < 1 else 0
+                })
+
+        result = {
+            "matches": matches,
+            "count": len(matches),
+            "query": query,
+            "category_filter": category
+        }
+
+        self._log_request("search_knowledge", arguments, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    async def _handle_get_knowledge_for_query(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Get concatenated knowledge for a category and query."""
+        category = arguments.get("category", "")
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 3)
+
+        where_clause = {"category": category} if category else None
+
+        results = self.knowledge_base.query(
+            query_texts=[query],
+            n_results=max_results,
+            where=where_clause,
+            include=["documents", "metadatas"]
+        )
+
+        knowledge_parts = []
+        sources = set()
+
+        if results["documents"] and results["documents"][0]:
+            for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+                knowledge_parts.append(doc)
+                sources.add(meta.get("source", "Unknown"))
+
+        result = {
+            "knowledge": "\n\n---\n\n".join(knowledge_parts) if knowledge_parts else "No relevant documentation found.",
+            "sources": list(sources),
+            "chunks_retrieved": len(knowledge_parts)
+        }
+
+        self._log_request("get_knowledge_for_query", arguments, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    # TODO Lab 1: Add these handlers
+    # async def _handle_lookup_customer(self, arguments: Dict[str, Any]) -> List[TextContent]:
+    # async def _handle_create_ticket(self, arguments: Dict[str, Any]) -> List[TextContent]:
+
+    # TODO Lab 2: Add this handler
+    # async def _handle_get_server_stats(self, arguments: Dict[str, Any]) -> List[TextContent]:
+
+    # ─── Logging ───────────────────────────────────────────────────────────
+
+    def _log_request(self, tool_name: str, args: Dict[str, Any], result: Any):
+        """Log MCP tool requests."""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "tool": tool_name,
+            "arguments": args,
+            "result_preview": str(result)[:200]
+        }
+        self.request_log.append(log_entry)
+
+        if len(self.request_log) > 50:
+            self.request_log = self.request_log[-50:]
+
+        logger.info(f"Tool call: {tool_name}")
+
+    # ─── Tool Registration ─────────────────────────────────────────────────
+
+    def _setup_tools(self):
+        """Register all MCP tools."""
+
+        @self.server.list_tools()
+        async def list_tools() -> List[Tool]:
+            tools = [
+                # Classification tools
+                Tool(
+                    name="classify_query",
+                    description="Classify a customer query into a support category",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "user_query": {"type": "string", "description": "The customer's query"}
+                        },
+                        "required": ["user_query"]
+                    }
+                ),
+                Tool(
+                    name="get_query_template",
+                    description="Get the prompt template for a support category",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query_name": {"type": "string", "description": "Category name"}
+                        },
+                        "required": ["query_name"]
+                    }
+                ),
+                Tool(
+                    name="list_categories",
+                    description="List all available support categories",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
+
+                # Knowledge tools
+                Tool(
+                    name="search_knowledge",
+                    description="Search the knowledge base",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "category": {"type": "string", "description": "Optional category filter"},
+                            "max_results": {"type": "integer", "default": 3}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="get_knowledge_for_query",
+                    description="Get concatenated knowledge for a category and query",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "category": {"type": "string", "description": "Support category"},
+                            "query": {"type": "string", "description": "User's question"},
+                            "max_results": {"type": "integer", "default": 3}
+                        },
+                        "required": ["category", "query"]
+                    }
+                ),
+
+                # TODO Lab 1: Add customer and ticket tools
+                # Tool(name="lookup_customer", ...),
+                # Tool(name="create_support_ticket", ...),
+
+                # TODO Lab 2: Add stats tool
+                # Tool(name="get_server_stats", ...),
+            ]
+            return tools
+
+        @self.server.call_tool()
+        async def call_tool(name: str, arguments: Dict[str, Any] | None) -> List[TextContent]:
+            if arguments is None:
+                arguments = {}
+
+            try:
+                if name == "classify_query":
+                    return await self._handle_classify_query(arguments)
+                elif name == "get_query_template":
+                    return await self._handle_get_template(arguments)
+                elif name == "list_categories":
+                    return await self._handle_list_categories(arguments)
+                elif name == "search_knowledge":
+                    return await self._handle_search_knowledge(arguments)
+                elif name == "get_knowledge_for_query":
+                    return await self._handle_get_knowledge_for_query(arguments)
+                # TODO Lab 1: Add customer/ticket tool routing
+                # TODO Lab 2: Add stats tool routing
+                else:
+                    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
+            except Exception as e:
+                logger.error(f"Tool error ({name}): {e}")
+                return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ 4. Main Entry Point                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+async def main():
+    """Run the MCP server."""
+    server_instance = OmniTechSupportServer()
+
+    async with stdio_server() as (read_stream, write_stream):
+        await server_instance.server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="omnitech-support",
+                server_version="1.0.0",
+                capabilities=server_instance.server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={}
+                )
+            )
+        )
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("OmniTech Customer Support MCP Server")
+    print("=" * 60)
+    print(f"Knowledge base: {KNOWLEDGE_BASE_DIR}")
+    print(f"Support categories: {list(CANONICAL_QUERIES.keys())}")
+    print("=" * 60)
+    asyncio.run(main())
