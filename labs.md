@@ -300,7 +300,7 @@ python -c "import gradio_app; print('Gradio app OK')"
 python gradio_app.py
 ```
 
-   Open the URL shown (usually http://localhost:7860) in your browser.
+Since we're running in a Codespace, use the public Gradio link (the *.gradio.live URL) shown in the terminal to access the interface.
 
 <br><br>
 
