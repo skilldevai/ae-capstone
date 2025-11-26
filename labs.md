@@ -87,6 +87,10 @@ python rag_agent_minimal.py
    - `My device won't turn on` (should use classification → device_troubleshooting)
    - `Tell me about OmniTech` (should use direct RAG)
 
+<br>
+
+![Running the agent](./images/aia-3-27.png?raw=true "Running the agent")
+
 <br><br>
 
 5. Observe the workflow output:
@@ -104,9 +108,15 @@ When done, type `exit` to quit.
 
 ---
 
-**Lab 2 - Adding Customer Database and Ticket Support**
+**Lab 2 - Adding a Web Interface**
 
-**Purpose: Enhance the MCP server with customer lookup and ticket creation tools.**
+**Purpose: Add a Gradio interface onto the system.**
+
+1. We've got a pre-configured Gradio interface for our minimal system. Still in the *minimal_app* directory, let's look at the gradio interface.
+
+```
+code gradio_app_minimal.py
+```
 
 1. In this lab, you'll add customer-related functionality to the MCP server. We'll use the diff-and-merge approach. Open the comparison:
 
@@ -114,7 +124,44 @@ When done, type `exit` to quit.
 code -d mcp_server.py extra/mcp_server_full_solution.txt
 ```
 
+2. Scroll through and note the various parts.
+
+- GLOBAL STATE: Reads in CSS from (gradio_minimal_styles.css)[./minimal_app/gradio_minimal_styles.css]
+- CHAT FUNCTIONS: Implements a `send_message` function to pass the user message on to the agent and get a response
+- GRADIO UI: Implements the webpage, buttons, and other controls
+- MAIN: Creates and launches the app
+
 <br><br>
+
+3. Now, let's run the gradio app version of the tool. (Again, make sure your Hugging Face token is set.)
+
+```
+python gradio_app_minimal.py
+```
+<br><br>
+
+4. When this starts, you should see a pop-up in the lower right that has a button to click to open the app. If you click that and it instead opens a new codespace instance, just close that new tab, go back and try the process again.
+
+![Running the gradio app](./images/aia-3-27.png?raw=true "Running the gradio app")
+
+<br>
+
+Alternatively, you can get to the running app, by switching to the *PORTS* tab (next to *TERMINAL*) in the codespace, finding the row for the port *7860*, hovering over the second column, and then clicking on the icon that looks like a globe.
+
+![Opening via the PORTS row](./images/aia-3-29.png?raw=true "Opening via the PORTS row")
+
+<br><br>
+
+5. Once the app starts up, you can enter a query in the input area, like "I need to return my headphones".
+
+![Inputting query](./images/aia-3-30.png?raw=true "Inputting query")
+
+
+6. You should see a response from the chatbot referencing a knowledge base doc.
+
+![RAG response](./images/aia-3-31.png?raw=true "RAG response")
+
+
 
 2. As you scroll through, you'll see the additions:
    - **Customer database** (around line 115): A dictionary with sample customers
