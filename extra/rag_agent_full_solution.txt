@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+##!/usr/bin/env python3
 """
 OmniTech Customer Support RAG Agent - FULL VERSION
 ═══════════════════════════════════════════════════════════════════════════════
@@ -42,7 +42,7 @@ logger = logging.getLogger("omnitech-agent")
 # HuggingFace Inference API
 # Set HF_TOKEN environment variable for authenticated access
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
-HF_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 HF_CLIENT = InferenceClient(token=HF_TOKEN) if HF_TOKEN else None
 
 if not HF_TOKEN:
@@ -207,14 +207,10 @@ class OmniTechAgent:
             name = customer.get("name", "Unknown")
             tier = customer.get("tier", "Standard")
             tickets = customer.get("support_tickets", 0)
-            orders = customer.get("orders", [])
 
             context = f"Customer: {name} ({tier} tier)"
             if tickets > 0:
                 context += f" - {tickets} previous tickets"
-            if orders:
-                recent = orders[-1]
-                context += f" - Recent order: {recent.get('product', 'N/A')} ({recent.get('status', 'N/A')})"
 
             return context
         else:
@@ -335,6 +331,8 @@ Provide a helpful response."""
 
 {formatted_prompt}
 
+IMPORTANT: Answer the customer's EXACT question. If they mention a specific product (like "headphones" or "laptop"), respond about THAT product, not products mentioned in the documentation.
+
 Respond with JSON containing:
 - "response": your answer (2-3 sentences)
 - "action_needed": "none", "create_ticket", or "escalate"
@@ -344,15 +342,37 @@ JSON Response:"""
 
             llm_response = self.query_llm(full_prompt)
 
-            # Parse response
+            # Parse response - handle JSON wrapped in markdown code blocks
+            result = None
             try:
                 result = json.loads(llm_response)
             except json.JSONDecodeError:
-                result = {
-                    "response": llm_response[:500] if len(llm_response) > 500 else llm_response,
-                    "action_needed": "none",
-                    "confidence": 0.6
-                }
+                # Try to extract JSON from markdown code blocks (```json ... ```)
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', llm_response, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+
+                # Also try to find raw JSON object in the response
+                if result is None:
+                    json_match = re.search(r'\{[^{}]*"response"[^{}]*\}', llm_response, re.DOTALL)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group(0))
+                        except json.JSONDecodeError:
+                            pass
+
+                # Fallback if no valid JSON found
+                if result is None:
+                    # Clean up the response - remove JSON artifacts if present
+                    clean_response = re.sub(r'```(?:json)?|```', '', llm_response).strip()
+                    result = {
+                        "response": clean_response[:500] if len(clean_response) > 500 else clean_response,
+                        "action_needed": "none",
+                        "confidence": 0.6
+                    }
 
             # Handle knowledge-base-only fallback
             if result.get("response") == "KNOWLEDGE_BASE_ONLY":
@@ -446,14 +466,36 @@ JSON Response:"""
 
             llm_response = self.query_llm(prompt)
 
+            # Parse response - handle JSON wrapped in markdown code blocks
+            result = None
             try:
                 result = json.loads(llm_response)
             except json.JSONDecodeError:
-                result = {
-                    "response": llm_response[:500],
-                    "action_needed": "none",
-                    "confidence": 0.6
-                }
+                # Try to extract JSON from markdown code blocks (```json ... ```)
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', llm_response, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+
+                # Also try to find raw JSON object in the response
+                if result is None:
+                    json_match = re.search(r'\{[^{}]*"response"[^{}]*\}', llm_response, re.DOTALL)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group(0))
+                        except json.JSONDecodeError:
+                            pass
+
+                # Fallback if no valid JSON found
+                if result is None:
+                    clean_response = re.sub(r'```(?:json)?|```', '', llm_response).strip()
+                    result = {
+                        "response": clean_response[:500] if len(clean_response) > 500 else clean_response,
+                        "action_needed": "none",
+                        "confidence": 0.6
+                    }
 
             if result.get("response") == "KNOWLEDGE_BASE_ONLY":
                 result["response"] = f"Here's what I found:\n\n{knowledge[:400]}..."
@@ -641,4 +683,3 @@ async def interactive_mode():
 
 if __name__ == "__main__":
     asyncio.run(interactive_mode())
-
