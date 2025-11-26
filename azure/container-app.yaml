@@ -1,0 +1,43 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Azure Container Apps Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Container Apps is Azure's serverless container platform (similar to Cloud Run).
+#
+# Deploy with:
+#   az containerapp create --yaml container-app.yaml
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: omnitech-support
+resourceGroup: <RESOURCE_GROUP>
+location: eastus
+type: Microsoft.App/containerApps
+properties:
+  managedEnvironmentId: /subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.App/managedEnvironments/<ENV_NAME>
+  configuration:
+    ingress:
+      external: true
+      targetPort: 7860
+      transport: auto
+    secrets:
+      - name: hf-token
+        value: <YOUR_HF_TOKEN>
+  template:
+    containers:
+      - name: omnitech-support
+        image: <ACR_NAME>.azurecr.io/omnitech-support:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: HF_TOKEN
+            secretRef: hf-token
+    scale:
+      minReplicas: 0
+      maxReplicas: 10
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "50"
