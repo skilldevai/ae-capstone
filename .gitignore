@@ -72,3 +72,6 @@ Thumbs.db
 *.cache
 tmp/
 temp/
+
+# HF Spaces deployment output
+hf_spaces_deploy/
