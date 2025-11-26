@@ -196,8 +196,13 @@ class SyncAgent:
         if not results['documents'] or not results['documents'][0]:
             return "No relevant documentation found."
 
-        # Combine retrieved documents
-        context = "\n\n---\n\n".join(results['documents'][0])
+        # Combine retrieved documents WITH source attribution
+        docs_with_sources = []
+        for i, doc in enumerate(results['documents'][0]):
+            source = results['metadatas'][0][i].get('source', 'Unknown')
+            docs_with_sources.append(f"[Source: {source}]\n{doc}")
+
+        context = "\n\n---\n\n".join(docs_with_sources)
         return context
 
     def query_llm(self, prompt: str) -> str:
@@ -321,11 +326,12 @@ Instructions:
 - Keep responses concise (2-4 sentences)
 - If you don't know something, say so clearly
 - Always provide specific, actionable help
+- IMPORTANT: When using information from the documentation, cite the source document (e.g., "According to OmniTech_Returns_Policy_2024.pdf...")
 
 Customer Question: {question}
 
 Respond with JSON containing:
-- "response": your helpful answer (2-4 sentences)
+- "response": your helpful answer (2-4 sentences) - include source citations when referencing documentation
 - "action_needed": "none", "create_ticket", or "escalate"
 - "confidence": 0-1
 
@@ -430,4 +436,3 @@ async def interactive_agent():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(interactive_agent())
-
