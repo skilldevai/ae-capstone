@@ -22,70 +22,64 @@ In this capstone project, you will build a complete customer support chatbot wit
 
 ---
 
-**Lab 1 - Setting Up and Testing the Foundation**
+**Lab 1 - Setting Up and Testing a Minimal Version**
 
 **Purpose: Verify the starter MCP server and RAG agent work correctly before adding enhancements.**
 
-1. The capstone starter project contains an MCP server and RAG agent based on the classification components from Labs 4-5. Let's explore what we have. First, check you're in the capstone directory:
+1. The capstone starter project contains a *minimal version* MCP server and RAG agent. Just to reengage our memory on the basics, let's explore what we have. First, change into the minimal_app subdirectory and let's look at what files we have to work with.
 
 ```
-cd capstone-starter
+cd minimal_app
 ls -la
 ```
 
    You should see:
-   - `mcp_server.py` - MCP server with classification and knowledge tools
-   - `rag_agent.py` - RAG agent with classification workflow
-   - `knowledge_base_pdfs/` - OmniTech documentation
-   - `extra/` - Solution files for labs
-   - `requirements.txt` - Dependencies
+   - `mcp_server_minimal.py` - MCP server with classification and knowledge tools
+   - `rag_agent_minimal.py` - RAG agent with classification workflow
+   - `gradio_app_minimal.py` - Small Gradio interface
+   - `minimal_data.json` - data file for the app to use
+   - `gradio_minimal_styles.css` - style sheets for gradio web interface
+   - `README_MINIMAL.md` - README file about the minimal version
+   - `SETUP.md` - A setup doc for the minimal app
 
 <br><br>
 
-2. Install dependencies if not already installed:
-
-```
-pip install -r requirements.txt
-```
-
-<br><br>
-
-3. Let's examine the starter MCP server. Open the file:
+2. Let's examine the starter MCP server. Open the file:
 
 ```
 code mcp_server.py
 ```
 
-   Notice the structure:
-   - **Section 1**: Configuration and paths
-   - **Section 2**: `CANONICAL_QUERIES` - The 5 support categories with templates
-   - **Section 3**: `OmniTechSupportServer` class with tool handlers
-   - **Section 4**: Main entry point
+   Scroll through and note the core parts:
+   - **Section 1**: DATA LOADING - reads in the sample emails and orders data from the JSON file
+   - **Section 2**: MCP SERVER SETUP - defines a tool to list all the tools and one to call a tool
+   - **Section 3**: START THE SERVER - allows the server to be started via stdio transport and provides main entry point
+  
+<br><br>
 
-   The server has classification tools (`classify_query`, `get_query_template`) and knowledge tools (`search_knowledge`, `get_knowledge_for_query`).
+3. Now examine the RAG agent:
 
-   **Note the TODO comments** - these mark where you'll add customer and ticket functionality.
+```
+code rag_agent_minimal.py
+```
+
+   Scroll through and note the core parts:
+   - **Section 1**: CONFIGURATION - Specifies model, KB path, and checks for Hugging Face token being in place
+   - **Section 2**: AGENT CLASS - Implements a minimal RAG agent with initialization and functions for:
+      - `_load_pdf_documents()`: loading and parsing the knowledge base PDF documents
+      - `_setup_vector_store()`: creating/refreshing the ChromaDB vector db
+      - `connect_mcp()`: connect to MCP server for working with emails and orders (fires up server via stdio)
+      - `search_knowledge_base()`: search the vector db for revelant hits
+      - `query_llm()`: takes the prompt (with RAG context) and queries the Hugging Face model
+      - `query(): the workhorse - searches KB for relevant info, checks to see if need emails/order info, builds augmented prompt, sends it over to LLM and parses and delivers respose    
+   - **Section 3**: Interactive mode when run directly
 
 <br><br>
 
-4. Now examine the RAG agent:
+4. Let's run the agent in test mode. This will automatically start the MCP server: (Make sure you've set the *HF_TOKEN* environment variable in the terminal.)
 
 ```
-code rag_agent.py
-```
-
-   Key components:
-   - `is_support_query()` - Routes queries to appropriate workflow
-   - `handle_support_query()` - 4-step classification workflow
-   - `handle_exploratory_query()` - Direct RAG search
-   - `SyncAgent` - Wrapper for Gradio integration
-
-<br><br>
-
-5. Let's test the agent in interactive mode. This will automatically start the MCP server:
-
-```
-python rag_agent.py
+python rag_agent_minimal.py
 ```
 
    Try these queries:
@@ -93,16 +87,15 @@ python rag_agent.py
    - `My device won't turn on` (should use classification → device_troubleshooting)
    - `Tell me about OmniTech` (should use direct RAG)
 
-   Type `demo` to run sample queries automatically, or `exit` to quit.
-
 <br><br>
 
-6. Observe the workflow output:
-   - Classification queries show `[1/4] Classifying...` through `[4/4] Generating...`
-   - Direct RAG queries show `[ROUTING] Exploratory query → Direct RAG`
-   - Both show the sources used
+5. Observe the workflow output:
+   - Searching the knowledge base
+   - Getting info from orders (if needed)
+   - Generating response with LLM
 
-   This confirms the foundation is working. Type `exit` to quit.
+
+When done, type `exit` to quit.
 
 <p align="center">
 <b>[END OF LAB]</b>
