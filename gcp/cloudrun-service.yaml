@@ -1,0 +1,49 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Google Cloud Run Service Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Cloud Run is a fully managed serverless platform for containers.
+# Pay only for what you use, scales to zero when idle.
+#
+# Deploy with:
+#   gcloud run services replace cloudrun-service.yaml
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: omnitech-support
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cpu-throttling: "false"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/<PROJECT_ID>/omnitech-support:latest
+          ports:
+            - containerPort: 7860
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: latest
+          resources:
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          startupProbe:
+            httpGet:
+              path: /
+              port: 7860
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
