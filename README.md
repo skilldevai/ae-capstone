@@ -17,7 +17,7 @@ Click here ➡️  [![Open in GitHub Codespaces](https://github.com/codespaces/b
 
 <br><br>
 
-**3. Then click on the option to create a new codespace.**
+**3. Then click on the option to create a new codespace. *While this is running, you can be creating your Hugging Face token in the next step!***
 
 ![Creating new codespace from button](./images/aia-3-24.png?raw=true "Creating new codespace from button")
 
