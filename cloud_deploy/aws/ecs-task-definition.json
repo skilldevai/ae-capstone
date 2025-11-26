@@ -1,0 +1,43 @@
+{
+  "family": "omnitech-support",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::<account>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "omnitech-support",
+      "image": "<YOUR_ECR_IMAGE_URI>",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 7860,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [],
+      "secrets": [
+        {
+          "name": "HF_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:<region>:<account>:secret:hf-token"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/omnitech-support",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
