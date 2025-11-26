@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "webAppName": {
+      "type": "string",
+      "defaultValue": "omnitech-support",
+      "metadata": {
+        "description": "Name of the web app"
+      }
+    },
+    "dockerRegistryUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Docker registry URL"
+      }
+    },
+    "dockerImage": {
+      "type": "string",
+      "defaultValue": "omnitech-support:latest",
+      "metadata": {
+        "description": "Docker image name and tag"
+      }
+    }
+  },
+  "variables": {
+    "appServicePlanName": "[concat(parameters('webAppName'), '-plan')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2021-02-01",
+      "name": "[variables('appServicePlanName')]",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "B1",
+        "tier": "Basic"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2021-02-01",
+      "name": "[parameters('webAppName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "siteConfig": {
+          "linuxFxVersion": "[concat('DOCKER|', parameters('dockerRegistryUrl'), '/', parameters('dockerImage'))]",
+          "appSettings": [
+            {
+              "name": "WEBSITES_PORT",
+              "value": "7860"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
