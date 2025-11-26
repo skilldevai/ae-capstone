@@ -1,67 +1,162 @@
 #!/usr/bin/env python3
 """
-MCP Server for OmniTech Customer Support Chatbot
+MCP Server for OmniTech Customer Support Chatbot - FULL VERSION
 ═══════════════════════════════════════════════════════════════════════════════
 
-This server provides customer support capabilities via MCP protocol:
-1. CLASSIFICATION - Determine which support category matches a query
-2. KNOWLEDGE RETRIEVAL - RAG-based search through OmniTech PDFs
-3. PROMPT TEMPLATES - Structured prompts for consistent responses
-4. CUSTOMER DATA - Customer lookup and ticket creation
+OVERVIEW
+--------
+This file implements a Model Context Protocol (MCP) server that provides tools
+and resources for the OmniTech Customer Support chatbot. MCP is a protocol that
+allows LLM applications to connect to external data sources and tools.
 
-STARTING POINT: This file contains the classification and knowledge components
-from mcp_server_classification.py. You will enhance it through the labs.
+WHAT IS MCP?
+------------
+MCP (Model Context Protocol) is a standard protocol developed by Anthropic for
+connecting LLMs to external tools and data. Think of it like a USB standard for
+AI - any MCP-compatible client can connect to any MCP-compatible server.
 
-Lab 1: Add customer database and support ticket tools
-Lab 2: Add server statistics and monitoring
+Key MCP concepts:
+- **Tools**: Functions the LLM can call (like classify_query, lookup_customer)
+- **Resources**: Data the LLM can read (like config://llm, data://tickets)
+- **Server**: Provides tools and resources (this file)
+- **Client**: Connects to server and uses tools (rag_agent.py)
+
+WHAT THIS SERVER PROVIDES
+-------------------------
+1. CLASSIFICATION TOOLS - Categorize customer queries
+
+2. KNOWLEDGE TOOLS - Search the vector database
+
+3. CUSTOMER TOOLS - Manage customer data
+4. STATISTICS TOOLS
+
+5. MCP RESOURCES - Read-only data access
+
+ARCHITECTURE
+------------
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    rag_agent.py (Client)                    │
+    │                    Uses mcp.ClientSession                   │
+    └─────────────────────────────────────────────────────────────┘
+                                  │
+                                  │ stdio (JSON-RPC)
+                                  ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    mcp_server.py (Server)                   │
+    │                    OmniTechSupportServer                    │
+    ├─────────────────────────────────────────────────────────────┤
+    │  Tools: classify_query, search_knowledge, lookup_customer   │
+    │  Resources: config://llm, config://database, data://tickets │
+    ├─────────────────────────────────────────────────────────────┤
+    │  ChromaDB (Vector Store)     │    SQLite (Customer DB)      │
+    │  - PDF documents             │    - Customers table         │
+    │  - Embeddings                │    - Orders table            │
+    │  - Semantic search           │    - Tickets table           │
+    └─────────────────────────────────────────────────────────────┘
+
+HOW TO RUN
+----------
+This server is typically started by rag_agent.py as a subprocess:
+    python mcp_server.py
+
+It communicates via stdio (stdin/stdout) using JSON-RPC protocol.
+All print statements go to stderr to avoid corrupting the protocol.
 """
 
-from __future__ import annotations
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMPORTS
+# ═══════════════════════════════════════════════════════════════════════════════
+# Standard library imports come first, then third-party, then local modules
 
-import asyncio
-import json
-import logging
-import os
-import re
-import subprocess
-import sys
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from __future__ import annotations  # Allows using class name in type hints before defined
 
-# MCP imports
+import asyncio          # Async/await support for non-blocking I/O
+import json             # JSON parsing for tool arguments and results
+import logging          # Logging for debugging and monitoring
+import os               # Environment variables (HF_MODEL)
+import re               # Regular expressions for text processing
+import sqlite3          # SQLite database for customers/orders/tickets
+import subprocess       # Not used, but available for future extensions
+import sys              # System-specific parameters (stderr, exit)
+from datetime import datetime   # Timestamps for logging and tickets
+from pathlib import Path        # Cross-platform file path handling
+from typing import Any, Dict, List, Optional  # Type hints for better code clarity
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP Library Imports
+# The MCP library provides the protocol implementation for tool serving
+# Install with: pip install mcp
+# ─────────────────────────────────────────────────────────────────────────────
 try:
-    from mcp.server.models import InitializationOptions
-    from mcp.server import NotificationOptions, Server
-    from mcp.types import Tool, TextContent
-    import mcp.types as types
-    from mcp.server.stdio import stdio_server
+    from mcp.server.models import InitializationOptions  # Server startup config
+    from mcp.server import NotificationOptions, Server   # Core server classes
+    from mcp.types import Tool, TextContent              # Tool definitions and responses
+    import mcp.types as types                            # Additional MCP types (Resource)
+    from mcp.server.stdio import stdio_server            # stdio transport layer
 except ImportError:
     print("MCP not installed. Install with: pip install mcp")
     sys.exit(1)
 
-import chromadb
-from chromadb.config import Settings
-import pypdf
+# ─────────────────────────────────────────────────────────────────────────────
+# Vector Database and PDF Processing
+# ChromaDB: Vector database for semantic search (RAG retrieval)
+# pypdf: PDF text extraction for loading knowledge base
+# ─────────────────────────────────────────────────────────────────────────────
+import chromadb                 # Vector database for embeddings and semantic search
+from chromadb.config import Settings  # ChromaDB configuration
+import pypdf                    # PDF text extraction
 
-# Configure logging
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging Configuration
+# Logs to both file and console for debugging
+# Log file: mcp_server.log (in current directory)
+# ─────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('mcp_server.log'),
-        logging.StreamHandler()
+        logging.FileHandler('mcp_server.log'),   # Persistent log file
+        logging.StreamHandler()                  # Console output (goes to stderr)
     ]
 )
 logger = logging.getLogger("omnitech-support-mcp")
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 1. Configuration and Constants                                           ║
+# ║ SECTION 1: CONFIGURATION AND CONSTANTS                                   ║
+# ║                                                                          ║
+# ║ Purpose: Define all configurable paths, settings, and mappings           ║
+# ║                                                                          ║
+# ║ These constants control where the server finds its data:                 ║
+# ║   - Knowledge base PDFs (for RAG retrieval)                              ║
+# ║   - Customer database (SQLite)                                           ║
+# ║   - Initial seed data (JSON)                                             ║
+# ║   - LLM model configuration                                              ║
+# ║                                                                          ║
+# ║ BEST PRACTICE: Configuration at the top makes it easy to modify          ║
+# ║ behavior without searching through code. Consider moving to              ║
+# ║ environment variables or a config file for production deployments.       ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-KNOWLEDGE_BASE_DIR = Path("knowledge_base_pdfs")
+# ─────────────────────────────────────────────────────────────────────────────
+# File Paths
+# Using Path objects (not strings) for cross-platform compatibility
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Document categories mapping filenames to support categories
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Configuration
+# This is exposed as an MCP resource (config://llm) so the RAG agent can
+# discover which model to use. The model name can be overridden via
+# environment variable: export HF_MODEL="your-model-name"
+# ─────────────────────────────────────────────────────────────────────────────
+LLM_CONFIG = {
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Document Category Mappings
+# Maps each PDF filename to its support category for classification.
+# When PDFs are loaded, this mapping determines which category filter
+# to apply during semantic search. This enables category-specific RAG.
+# ─────────────────────────────────────────────────────────────────────────────
 DOCUMENT_CATEGORIES = {
     "account_security": ["OmniTech_Account_Security_Handbook.pdf"],
     "device_troubleshooting": ["OmniTech_Device_Troubleshooting_Manual.pdf"],
@@ -70,7 +165,20 @@ DOCUMENT_CATEGORIES = {
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 2. Canonical Query Definitions (from mcp_server_classification.py)       ║
+# ║ SECTION 2: CANONICAL QUERY DEFINITIONS                                   ║
+# ║                                                                          ║
+# ║ Purpose: Define support categories, prompt templates, and keywords       ║
+# ║                                                                          ║
+# ║ Each category contains:                                                  ║               ║
+# ║                                                                          ║
+# ║ HOW CLASSIFICATION WORKS:                                                ║
+# ║   1. User asks: "How do I reset my password?"                            ║
+# ║   2. classify_query tool scans keywords for each category                ║
+# ║   3. "password" and "reset" match account_security keywords              ║
+# ║   4. Returns: {"suggested_query": "account_security", "confidence": 1.0} ║
+# ║   5. RAG agent uses the account_security prompt_template                 ║
+# ║                                                                          ║
+# ║ TO ADD A NEW CATEGORY:                                                   ║                  ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 CANONICAL_QUERIES = {
@@ -195,25 +303,209 @@ Provide a helpful, professional response that addresses their needs.""",
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 3. MCP Server Class                                                      ║
+# ║ SECTION 3: MCP SERVER CLASS                                              ║
+# ║                                                                          ║
+# ║ Purpose: Main server class that implements the MCP protocol              ║
+# ║                                                                          ║
+# ║ This class encapsulates all server functionality:                        ║
+# ║   - Database management (SQLite for customers, orders, tickets)          ║
+# ║   - Knowledge base management (ChromaDB for vector search)               ║
+# ║   - Tool handlers (classify_query, search_knowledge, etc.)               ║
+# ║   - Resource handlers (config://llm, data://tickets, etc.)               ║
+# ║                                                                          ║
+# ║ INITIALIZATION FLOW:                                                     ║
+# ║   1. Create MCP Server instance                                          ║
+# ║   2. Set up SQLite database (creates tables, seeds data if empty)        ║
+# ║   3. Set up ChromaDB and load PDF documents                              ║
+# ║   4. Register all MCP tools                                              ║
+# ║   5. Register all MCP resources                                          ║
+# ║                                                                          ║
+# ║ KEY METHODS:                                                             ║
+# ║   _setup_database()      - Initialize SQLite with tables and seed data   ║
+# ║   _setup_knowledge_base() - Load PDFs into ChromaDB vector store         ║
+# ║   _setup_tools()         - Register MCP tool handlers                    ║
+# ║   _setup_resources()     - Register MCP resource handlers                ║
+# ║   _handle_*()            - Individual tool handler methods               ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 class OmniTechSupportServer:
-    """MCP Server for OmniTech Customer Support"""
+    """
+    MCP Server for OmniTech Customer Support.
+
+    This server provides tools and resources for the RAG-based customer support
+    agent. It manages the knowledge base (ChromaDB), customer database (SQLite),
+    and exposes configuration as MCP resources.
+    """
 
     def __init__(self):
-        self.server = Server("omnitech-support")
-        self.knowledge_base = None
-        self.chroma_client = None
-        self.request_log = []
+        """
+        Initialize the MCP server with all required components.
 
-        # TODO Lab 1: Add customer database
-        # self.customers = {}
+        Sets up:
+        - MCP Server instance for protocol handling
+        - SQLite database for customer/order/ticket data
+        - ChromaDB for semantic search of knowledge base
+        - Tool and resource registrations
+        """
+        self.server = Server("omnitech-support")  # MCP server instance
+        self.knowledge_base = None                # ChromaDB collection (set in _setup_knowledge_base)
+        self.chroma_client = None                 # ChromaDB client instance
+        self.request_log = []                     # Log of recent tool calls (for debugging)
+        self.db_path = CUSTOMER_DB_PATH           # Path to SQLite database
 
-        self._setup_knowledge_base()
-        self._setup_tools()
+        # Initialize components in order (database must exist before knowledge base)
+        self._setup_database()      # 1. Create SQLite tables and seed data
+        self._setup_knowledge_base()  # 2. Load PDFs into vector store
+        self._setup_tools()         # 3. Register MCP tools
+        self._setup_resources()     # 4. Register MCP resources
 
-    # ─── Knowledge Base Setup ──────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # SQLite Database Setup Methods
+    #
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _setup_database(self):
+        """
+        Initialize SQLite database with customers, orders, and tickets tables.
+
+        This method:
+        1. Creates the database file if it doesn't exist
+        2. Creates the three tables (customers, orders, tickets)
+        3. Seeds the database with initial data from seed_data.json if empty
+
+        The seed data pattern allows easy customization of demo data without
+        modifying code. See seed_data.json and SEED_DATA_README.md for details.
+        """
+        logger.info(f"Initializing customer database: {self.db_path}")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Create customers table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                email TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                tier TEXT DEFAULT 'Standard',
+                support_tickets INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create orders table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id TEXT PRIMARY KEY,
+                customer_email TEXT NOT NULL,
+                order_date TEXT NOT NULL,
+                product TEXT NOT NULL,
+                status TEXT DEFAULT 'Processing',
+                FOREIGN KEY (customer_email) REFERENCES customers(email)
+            )
+        """)
+
+        # Create tickets table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tickets (
+                id TEXT PRIMARY KEY,
+                customer_email TEXT NOT NULL,
+                issue_type TEXT NOT NULL,
+                description TEXT,
+                priority TEXT DEFAULT 'medium',
+                status TEXT DEFAULT 'Open',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                assigned_agent TEXT,
+                FOREIGN KEY (customer_email) REFERENCES customers(email)
+            )
+        """)
+
+        # Check if we need to seed data
+        cursor.execute("SELECT COUNT(*) FROM customers")
+        if cursor.fetchone()[0] == 0:
+            self._seed_database(cursor)
+
+        conn.commit()
+        conn.close()
+        logger.info("Customer database ready")
+
+    def _seed_database(self, cursor):
+        """Seed the database from seed_data.json file."""
+        logger.info("Seeding customer database...")
+
+        if not SEED_DATA_PATH.exists():
+            logger.warning(f"Seed data file not found: {SEED_DATA_PATH}")
+            return
+
+        with open(SEED_DATA_PATH, 'r') as f:
+            seed_data = json.load(f)
+
+        # Insert customers
+        customers = [
+            (c["email"], c["name"], c.get("tier", "Standard"), c.get("support_tickets", 0))
+            for c in seed_data.get("customers", [])
+        ]
+        cursor.executemany(
+            "INSERT INTO customers (email, name, tier, support_tickets) VALUES (?, ?, ?, ?)",
+            customers
+        )
+
+        # Insert orders
+        orders = [
+            (o["id"], o["customer_email"], o["order_date"], o["product"], o.get("status", "Processing"))
+            for o in seed_data.get("orders", [])
+        ]
+        cursor.executemany(
+            "INSERT INTO orders (id, customer_email, order_date, product, status) VALUES (?, ?, ?, ?, ?)",
+            orders
+        )
+
+        logger.info(f"Seeded {len(customers)} customers and {len(orders)} orders from {SEED_DATA_PATH}")
+
+    def _get_db_connection(self):
+        """Get a database connection."""
+        return sqlite3.connect(self.db_path)
+
+    def _get_customer_count(self) -> int:
+        """Get the number of customers in the database."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM customers")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def _get_ticket_count(self) -> int:
+        """Get the total number of tickets."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tickets")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def _get_open_ticket_count(self) -> int:
+        """Get the number of open tickets."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tickets WHERE status = 'Open'")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def _generate_ticket_id(self) -> str:
+        """Generate a unique ticket ID."""
+        count = self._get_ticket_count()
+        return f"TKT-{datetime.now().strftime('%Y%m%d')}-{count + 1:04d}"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Knowledge Base Setup Methods
+    #
+    # These methods handle loading PDF documents and creating the vector store
+    # for semantic search (the "R" in RAG - Retrieval Augmented Generation).
+    #
+    # HOW RAG RETRIEVAL WORKS:
+    #
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _load_pdf_documents(self) -> List[Dict]:
         """Load and parse PDF documents from knowledge base directory."""
@@ -286,7 +578,14 @@ class OmniTechSupportServer:
 
         logger.info(f"Knowledge base ready: {self.knowledge_base.count()} documents")
 
-    # ─── Tool Handlers ─────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Classification Tool Handlers
+    #
+    # These handlers implement the query classification tools. Classification
+    # is the first step in the RAG pipeline - determining what type of support
+    # request the user is making so we can retrieve the right documents.
+    #
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def _handle_classify_query(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Classify a customer query into a support category."""
@@ -294,28 +593,29 @@ class OmniTechSupportServer:
         user_lower = user_query.lower()
         scores = {}
 
-        # Score based on keyword matching
         for query_name, config in CANONICAL_QUERIES.items():
             score = 0
             keywords = config.get("keywords", [])
 
             for keyword in keywords:
                 if keyword in user_lower:
-                    score += 1
+                    # Give higher weight to longer/more specific keywords
+                    score += len(keyword.split())
 
-            scores[query_name] = score / len(keywords) if keywords else 0
+            scores[query_name] = score
 
-        # Also check example queries
         for query_name, config in CANONICAL_QUERIES.items():
             for example in config["example_queries"]:
-                example_words = set(example.lower().split())
-                user_words = set(user_lower.split())
+                # Only count content words, not common words like "how", "do", "i", "my"
+                stop_words = {"how", "do", "i", "my", "the", "a", "an", "is", "it", "to", "can", "you", "what"}
+                example_words = set(example.lower().split()) - stop_words
+                user_words = set(user_lower.split()) - stop_words
                 overlap = len(example_words.intersection(user_words))
-                if overlap > 0:
-                    similarity = overlap / max(len(example_words), len(user_words))
-                    scores[query_name] = max(scores.get(query_name, 0), similarity)
+                if overlap > 0 and example_words:
+                    similarity = overlap / len(example_words)
+                    # Add to score instead of replacing (weighted at 0.5)
+                    scores[query_name] = scores.get(query_name, 0) + (similarity * 0.5)
 
-        # Find best match
         if not scores or max(scores.values()) == 0:
             result = {
                 "suggested_query": "general_support",
@@ -325,7 +625,9 @@ class OmniTechSupportServer:
             }
         else:
             best_query = max(scores, key=scores.get)
-            confidence = min(scores[best_query], 1.0)
+            best_score = scores[best_query]
+            # Normalize confidence: score of 2+ keywords = high confidence
+            confidence = min(best_score / 2.0, 1.0)
 
             alternatives = [
                 {"query": name, "score": round(score, 3)}
@@ -372,6 +674,11 @@ class OmniTechSupportServer:
         result = {"categories": categories}
         self._log_request("list_categories", {}, result)
         return [TextContent(type="text", text=json.dumps(result))]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Knowledge Tool Handlers
+    #
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def _handle_search_knowledge(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Search knowledge base with optional category filter."""
@@ -445,14 +752,201 @@ class OmniTechSupportServer:
         self._log_request("get_knowledge_for_query", arguments, result)
         return [TextContent(type="text", text=json.dumps(result))]
 
-    # TODO Lab 1: Add these handlers
-    # async def _handle_lookup_customer(self, arguments: Dict[str, Any]) -> List[TextContent]:
-    # async def _handle_create_ticket(self, arguments: Dict[str, Any]) -> List[TextContent]:
+    # ─────────────────────────────────────────────────────────────────────────
+    # Customer Tool Handlers
+    #
+    #
+    # The lookup_customer tool is essential for personalized responses. When
+    # a customer asks about their order, we can look up their actual orders
+    # and provide specific information rather than generic responses.
+    # ─────────────────────────────────────────────────────────────────────────
 
-    # TODO Lab 2: Add this handler
-    # async def _handle_get_server_stats(self, arguments: Dict[str, Any]) -> List[TextContent]:
+    async def _handle_lookup_customer(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Look up customer information by email from SQLite database."""
+        email = arguments.get("email", "").lower()
 
-    # ─── Logging ───────────────────────────────────────────────────────────
+        conn = self._get_db_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get customer info
+        cursor.execute(
+            "SELECT email, name, tier, support_tickets FROM customers WHERE LOWER(email) = ?",
+            (email,)
+        )
+        customer_row = cursor.fetchone()
+
+        if customer_row:
+            # Get customer's orders
+            cursor.execute(
+                "SELECT id, order_date, product, status FROM orders WHERE LOWER(customer_email) = ?",
+                (email,)
+            )
+            orders = [
+                {"id": row["id"], "date": row["order_date"], "product": row["product"], "status": row["status"]}
+                for row in cursor.fetchall()
+            ]
+
+            result = {
+                "found": True,
+                "email": customer_row["email"],
+                "name": customer_row["name"],
+                "tier": customer_row["tier"],
+                "support_tickets": customer_row["support_tickets"],
+                "orders": orders
+            }
+        else:
+            result = {
+                "found": False,
+                "email": email,
+                "message": "Customer not found in database"
+            }
+
+        conn.close()
+        self._log_request("lookup_customer", {"email": email}, result)
+        return [TextContent(type="text", text=json.dumps(result))]
+
+    async def _handle_create_ticket(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Create a support ticket in SQLite database."""
+        customer_email = arguments.get("customer_email", "")
+        issue_type = arguments.get("issue_type", "general")
+        description = arguments.get("description", "")
+        priority = arguments.get("priority", "medium")
+
+        ticket_id = self._generate_ticket_id()
+        created_at = datetime.now().isoformat()
+
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+
+
+        # Update customer's ticket count if they exist
+        cursor.execute(
+            "UPDATE customers SET support_tickets = support_tickets + 1 WHERE LOWER(email) = ?",
+            (customer_email.lower(),)
+        )
+
+        conn.commit()
+        conn.close()
+
+        ticket = {
+            "id": ticket_id,
+            "customer_email": customer_email,
+            "issue_type": issue_type,
+            "description": description,
+            "priority": priority,
+            "status": "Open",
+            "created_at": created_at,
+            "assigned_agent": None
+        }
+
+        logger.info(f"Created ticket {ticket_id} for {customer_email}")
+        self._log_request("create_support_ticket", arguments, ticket)
+        return [TextContent(type="text", text=json.dumps(ticket))]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Statistics and Ticket Tool Handlers
+    #
+    # These handlers provide server statistics and ticket management.
+    #
+    # TOOLS:
+    #   get_server_stats - Get comprehensive server statistics and health info
+    #   get_tickets      - Retrieve tickets with optional filters
+    #
+    # The get_server_stats tool is useful for the MCP Monitor tab in the UI
+    # and for debugging. It returns information about loaded documents,
+    # customer counts, available tools, and recent request history.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _handle_get_server_stats(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Get server statistics and recent activity."""
+        stats = {
+            "server_status": "Active",
+            "llm_model": LLM_CONFIG["model_name"],
+            "knowledge_documents": self.knowledge_base.count() if self.knowledge_base else 0,
+            "customers_in_db": self._get_customer_count(),
+            "database_type": "SQLite",
+            "database_path": str(self.db_path),
+            "total_tickets": self._get_ticket_count(),
+            "open_tickets": self._get_open_ticket_count(),
+            "support_categories": list(CANONICAL_QUERIES.keys()),
+            "total_requests": len(self.request_log),
+            "recent_requests": self.request_log[-10:],
+            "tools_available": [
+                "classify_query",
+                "get_query_template",
+                "list_categories",
+                "search_knowledge",
+                "get_knowledge_for_query",
+                "lookup_customer",
+                "create_support_ticket",
+                "get_tickets",
+                "get_server_stats"
+            ]
+        }
+
+        self._log_request("get_server_stats", {}, stats)
+        return [TextContent(type="text", text=json.dumps(stats, indent=2))]
+
+    async def _handle_get_tickets(self, arguments: Dict[str, Any]) -> List[TextContent]:
+        """Get tickets from SQLite database with optional filters."""
+        customer_email = arguments.get("customer_email", None)
+        status = arguments.get("status", None)
+        limit = arguments.get("limit", 10)
+
+        conn = self._get_db_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Build query with optional filters
+        query = "SELECT * FROM tickets WHERE 1=1"
+        params = []
+
+        if customer_email:
+            query += " AND LOWER(customer_email) = ?"
+            params.append(customer_email.lower())
+
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        tickets = [
+            {
+                "id": row["id"],
+                "customer_email": row["customer_email"],
+                "issue_type": row["issue_type"],
+                "description": row["description"],
+                "priority": row["priority"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "assigned_agent": row["assigned_agent"]
+            }
+            for row in rows
+        ]
+
+        conn.close()
+
+        result = {
+            "tickets": tickets,
+            "count": len(tickets),
+            "filters": {
+                "customer_email": customer_email,
+                "status": status,
+                "limit": limit
+            }
+        }
+
+        self._log_request("get_tickets", arguments, result)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _log_request(self, tool_name: str, args: Dict[str, Any], result: Any):
         """Log MCP tool requests."""
@@ -469,15 +963,24 @@ class OmniTechSupportServer:
 
         logger.info(f"Tool call: {tool_name}")
 
-    # ─── Tool Registration ─────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Tool Registration
+    #
+    #
+    # HOW MCP TOOL REGISTRATION WORKS:
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _setup_tools(self):
-        """Register all MCP tools."""
+        """
+        Register all MCP tools with the server.
+
+
+        Tools are the primary way the RAG agent interacts with the server.
+        """
 
         @self.server.list_tools()
         async def list_tools() -> List[Tool]:
             tools = [
-                # Classification tools
                 Tool(
                     name="classify_query",
                     description="Classify a customer query into a support category",
@@ -506,7 +1009,6 @@ class OmniTechSupportServer:
                     inputSchema={"type": "object", "properties": {}}
                 ),
 
-                # Knowledge tools
                 Tool(
                     name="search_knowledge",
                     description="Search the knowledge base",
@@ -534,12 +1036,49 @@ class OmniTechSupportServer:
                     }
                 ),
 
-                # TODO Lab 1: Add customer and ticket tools
-                # Tool(name="lookup_customer", ...),
-                # Tool(name="create_support_ticket", ...),
+                Tool(
+                    name="lookup_customer",
+                    description="Look up customer information by email address",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "email": {"type": "string", "description": "Customer email address"}
+                        },
+                        "required": ["email"]
+                    }
+                ),
+                Tool(
+                    name="create_support_ticket",
+                    description="Create a new support ticket",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "customer_email": {"type": "string", "description": "Customer's email"},
+                            "issue_type": {"type": "string", "description": "Type of issue"},
+                            "description": {"type": "string", "description": "Issue description"},
+                            "priority": {"type": "string", "description": "Priority level", "default": "medium"}
+                        },
+                        "required": ["customer_email", "issue_type", "description"]
+                    }
+                ),
+                Tool(
+                    name="get_tickets",
+                    description="Get support tickets with optional filters",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "customer_email": {"type": "string", "description": "Filter by customer email"},
+                            "status": {"type": "string", "description": "Filter by status (Open, Closed, etc.)"},
+                            "limit": {"type": "integer", "description": "Max tickets to return", "default": 10}
+                        }
+                    }
+                ),
 
-                # TODO Lab 2: Add stats tool
-                # Tool(name="get_server_stats", ...),
+                Tool(
+                    name="get_server_stats",
+                    description="Get MCP server statistics and recent activity",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
             ]
             return tools
 
@@ -559,23 +1098,142 @@ class OmniTechSupportServer:
                     return await self._handle_search_knowledge(arguments)
                 elif name == "get_knowledge_for_query":
                     return await self._handle_get_knowledge_for_query(arguments)
-                # TODO Lab 1: Add customer/ticket tool routing
-                # TODO Lab 2: Add stats tool routing
+                elif name == "lookup_customer":
+                    return await self._handle_lookup_customer(arguments)
+                elif name == "create_support_ticket":
+                    return await self._handle_create_ticket(arguments)
+                elif name == "get_tickets":
+                    return await self._handle_get_tickets(arguments)
+                elif name == "get_server_stats":
+                    return await self._handle_get_server_stats(arguments)
                 else:
                     return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
             except Exception as e:
                 logger.error(f"Tool error ({name}): {e}")
                 return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Resource Registration
+    #
+    #
+    # RESOURCES IN THIS SERVER:
+    #
+    # The RAG agent uses the config://llm resource to discover which
+    # LLM model to use for generating responses.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _setup_resources(self):
+        """
+        Register MCP resources for configuration and database info.
+
+        """
+
+        @self.server.list_resources()
+        async def list_resources() -> List[types.Resource]:
+            """List available resources."""
+            return [
+                types.Resource(
+                    uri="config://llm",
+                    name="LLM Configuration",
+                    description="Current LLM model configuration",
+                    mimeType="application/json"
+                ),
+                types.Resource(
+                    uri="config://database",
+                    name="Customer Database Info",
+                    description="Customer database configuration and statistics",
+                    mimeType="application/json"
+                ),
+                types.Resource(
+                    uri="config://categories",
+                    name="Support Categories",
+                    description="Available support categories and their configurations",
+                    mimeType="application/json"
+                ),
+                types.Resource(
+                    uri="data://tickets",
+                    name="Support Tickets",
+                    description="Current support tickets in the system",
+                    mimeType="application/json"
+                )
+            ]
+
+        @self.server.read_resource()
+        async def read_resource(uri: str) -> str:
+            """Read a specific resource."""
+            if uri == "config://llm":
+                }, indent=2)
+
+            elif uri == "config://database":
+
+                return json.dumps({
+                    "type": "SQLite",
+                    "path": str(self.db_path),
+                    "tables": ["customers", "orders", "tickets"],
+                    "customer_count": customer_count,
+                    "order_count": order_count,
+                    "ticket_count": ticket_count,
+                    "description": "SQLite database for customer, order, and ticket information"
+                }, indent=2)
+
+            elif uri == "config://categories":
+                categories = {}
+                for name, config in CANONICAL_QUERIES.items():
+                    categories[name] = {
+                        "description": config["description"],
+                        "example_queries": config["example_queries"],
+                        "keyword_count": len(config.get("keywords", []))
+                    }
+                return json.dumps({
+                    "categories": categories,
+                    "total_categories": len(categories)
+                }, indent=2)
+
+            elif uri == "data://tickets":
+
+                tickets = [
+                    {
+                        "id": row["id"],
+                        "customer_email": row["customer_email"],
+                        "issue_type": row["issue_type"],
+                        "description": row["description"],
+                        "priority": row["priority"],
+                        "status": row["status"],
+                        "created_at": row["created_at"],
+                        "assigned_agent": row["assigned_agent"]
+                    }
+                    for row in rows
+                ]
+
+                return json.dumps({
+                    "tickets": tickets,
+                    "total_count": len(tickets),
+                    "open_count": len([t for t in tickets if t["status"] == "Open"])
+                }, indent=2)
+
+            else:
+                raise ValueError(f"Unknown resource: {uri}")
+
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 4. Main Entry Point                                                      ║
+# ║ SECTION 4: MAIN ENTRY POINT                                              ║
+# ║                                                                          ║
+# ║ Purpose: Start the MCP server and handle the stdio communication         ║
+# ║                                                                          ║
+# ║ HOW MCP COMMUNICATION WORKS:                                             ║     ║
+# ║                                                                          ║
+# ║ IMPORTANT: Never print to stdout! It will corrupt the JSON-RPC protocol. ║
+# ║ Always use: print("message", file=sys.stderr) or logger.info()           ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 async def main():
-    """Run the MCP server."""
+    """
+    Run the MCP server.
+
+    """
     server_instance = OmniTechSupportServer()
 
+    # stdio_server() provides async streams for stdin/stdout communication
     async with stdio_server() as (read_stream, write_stream):
         await server_instance.server.run(
             read_stream,
@@ -592,12 +1250,17 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Use stderr for startup messages - stdout is reserved for MCP JSON-RPC protocol
+    # ─────────────────────────────────────────────────────────────────────────
+    # Startup banner - goes to stderr because stdout is reserved for MCP
+    # ─────────────────────────────────────────────────────────────────────────
     print("=" * 60, file=sys.stderr)
     print("OmniTech Customer Support MCP Server", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
     print(f"Knowledge base: {KNOWLEDGE_BASE_DIR}", file=sys.stderr)
+    print(f"Customer database: {CUSTOMER_DB_PATH}", file=sys.stderr)
+    print(f"LLM model: {LLM_CONFIG['model_name']}", file=sys.stderr)
     print(f"Support categories: {list(CANONICAL_QUERIES.keys())}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
-    asyncio.run(main())
 
+    # Run the async main function
+    asyncio.run(main())
