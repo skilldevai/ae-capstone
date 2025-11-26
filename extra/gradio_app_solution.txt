@@ -79,9 +79,9 @@ class AppState:
         if self.agent:
             try:
                 # Call the search_knowledge tool via the agent's internal method
-                import asyncio
-                result = self.agent.agent.loop.run_until_complete(
-                    self.agent.agent.agent.call_tool("search_knowledge", {
+                # SyncAgent.agent = OmniTechAgent, SyncAgent.loop = event loop
+                result = self.agent.loop.run_until_complete(
+                    self.agent.agent.call_tool("search_knowledge", {
                         "query": query,
                         "max_results": max_results
                     })
@@ -435,7 +435,7 @@ def search_knowledge_direct(search_query: str, max_results: int) -> str:
 # ║ 4. Gradio Interface                                                      ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-with gr.Blocks(css=CUSTOM_CSS, theme=gr.themes.Soft(), title="OmniTech Support") as demo:
+with gr.Blocks(title="OmniTech Support") as demo:
 
     # Header
     gr.HTML("""
@@ -454,142 +454,112 @@ with gr.Blocks(css=CUSTOM_CSS, theme=gr.themes.Soft(), title="OmniTech Support")
     </div>
     """)
 
-    with gr.Row():
-        # Sidebar
-        with gr.Column(scale=1):
-            gr.Markdown("## Navigation")
+    # Status display
+    status_display = gr.Markdown(get_status())
 
-            customer_btn = gr.Button("Customer Chat", variant="primary", elem_classes=["nav-button"])
-            agent_btn = gr.Button("Agent Dashboard", elem_classes=["nav-button"])
-            mcp_btn = gr.Button("MCP Monitor", elem_classes=["nav-button"])
-            knowledge_btn = gr.Button("Knowledge Search", elem_classes=["nav-button"])
+    # Use Tabs for navigation (Gradio 6.0 compatible)
+    with gr.Tabs():
+        # Customer Chat Tab
+        with gr.Tab("Customer Chat"):
+            gr.Markdown("## Customer Support Chat")
+
+            customer_email = gr.Dropdown(
+                label="Customer Email",
+                choices=["john.doe@email.com", "sarah.smith@email.com", "mike.johnson@email.com", "guest@example.com"],
+                value="john.doe@email.com"
+            )
+
+            chat_display = gr.HTML(
+                value="<div style='padding: 1rem; color: #64748b;'>Start a conversation...</div>"
+            )
+
+            query_input = gr.Textbox(
+                label="Your Message",
+                placeholder="Type your question here...",
+                lines=2
+            )
+
+            with gr.Row():
+                send_btn = gr.Button("Send", variant="primary", scale=2)
+                clear_btn = gr.Button("Clear", scale=1)
+
+            gr.Markdown("#### Quick Actions")
+            with gr.Row():
+                q1 = gr.Button("Password Reset")
+                q2 = gr.Button("Device Issue")
+                q3 = gr.Button("Return Policy")
+                q4 = gr.Button("Track Order")
 
             gr.Markdown("---")
-            gr.Markdown("### Status")
-            status_display = gr.Markdown(get_status())
+            gr.Markdown("### Debug Info")
+            with gr.Row():
+                with gr.Column():
+                    prompt_display = gr.Textbox(label="LLM Prompt", lines=8, interactive=False)
+                with gr.Column():
+                    response_display = gr.Textbox(label="Full Response", lines=8, interactive=False)
 
-        # Main content
-        with gr.Column(scale=4):
+        # Agent Dashboard Tab
+        with gr.Tab("Agent Dashboard", id="agent_tab") as agent_tab:
+            agent_dashboard = gr.HTML(generate_agent_dashboard())
+            refresh_agent_btn = gr.Button("Refresh Dashboard")
 
-            # Customer Chat View
-            with gr.Column(visible=True) as customer_view:
-                gr.Markdown("## Customer Support Chat")
+        # MCP Monitor Tab
+        with gr.Tab("MCP Monitor", id="mcp_tab") as mcp_tab:
+            mcp_monitor = gr.HTML(generate_mcp_monitor())
+            refresh_mcp_btn = gr.Button("Refresh Monitor")
 
-                customer_email = gr.Dropdown(
-                    label="Customer Email",
-                    choices=["john.doe@email.com", "sarah.smith@email.com", "mike.johnson@email.com", "guest@example.com"],
-                    value="john.doe@email.com"
-                )
+        # Knowledge Search Tab
+        with gr.Tab("Knowledge Search"):
+            gr.Markdown("## Knowledge Base Search")
+            gr.Markdown("Search the OmniTech product documentation directly.")
 
-                chat_display = gr.HTML(
-                    value="<div style='padding: 1rem; color: #64748b;'>Start a conversation...</div>"
-                )
+            with gr.Row():
+                with gr.Column(scale=3):
+                    search_input = gr.Textbox(
+                        label="Search Query",
+                        placeholder="Enter search terms (e.g., 'password reset', 'warranty', 'smart home')",
+                        lines=1
+                    )
+                with gr.Column(scale=1):
+                    search_results_slider = gr.Slider(
+                        label="Max Results",
+                        minimum=1,
+                        maximum=10,
+                        value=3,
+                        step=1
+                    )
 
-                query_input = gr.Textbox(
-                    label="Your Message",
-                    placeholder="Type your question here...",
-                    lines=2
-                )
+            search_btn = gr.Button("Search Knowledge Base", variant="primary")
 
-                with gr.Row():
-                    send_btn = gr.Button("Send", variant="primary", scale=2)
-                    clear_btn = gr.Button("Clear", scale=1)
-
-                gr.Markdown("#### Quick Actions")
-                with gr.Row():
-                    q1 = gr.Button("Password Reset")
-                    q2 = gr.Button("Device Issue")
-                    q3 = gr.Button("Return Policy")
-                    q4 = gr.Button("Track Order")
-
-                gr.Markdown("---")
-                gr.Markdown("### Debug Info")
-                with gr.Row():
-                    with gr.Column():
-                        prompt_display = gr.Textbox(label="LLM Prompt", lines=8, interactive=False)
-                    with gr.Column():
-                        response_display = gr.Textbox(label="Full Response", lines=8, interactive=False)
-
-            # Agent Dashboard View
-            with gr.Column(visible=False) as agent_view:
-                agent_dashboard = gr.HTML(generate_agent_dashboard())
-                refresh_agent_btn = gr.Button("Refresh Dashboard")
-
-            # MCP Monitor View
-            with gr.Column(visible=False) as mcp_view:
-                mcp_monitor = gr.HTML(generate_mcp_monitor())
-                refresh_mcp_btn = gr.Button("Refresh Monitor")
-
-            # Knowledge Search View
-            with gr.Column(visible=False) as knowledge_view:
-                gr.Markdown("## Knowledge Base Search")
-                gr.Markdown("Search the OmniTech product documentation directly.")
-
-                with gr.Row():
-                    with gr.Column(scale=3):
-                        search_input = gr.Textbox(
-                            label="Search Query",
-                            placeholder="Enter search terms (e.g., 'password reset', 'warranty', 'smart home')",
-                            lines=1
-                        )
-                    with gr.Column(scale=1):
-                        search_results_slider = gr.Slider(
-                            label="Max Results",
-                            minimum=1,
-                            maximum=10,
-                            value=3,
-                            step=1
-                        )
-
-                search_btn = gr.Button("Search Knowledge Base", variant="primary")
-
-                knowledge_results = gr.HTML(
-                    value="""
-                    <div class="metric-card">
-                        <p style="color: #64748b;">Enter a search query to explore the OmniTech knowledge base.</p>
-                        <p style="color: #64748b; font-size: 0.875rem;">
-                            Try queries like: "password reset", "device troubleshooting", "return policy", "warranty information"
-                        </p>
-                    </div>
-                    """
-                )
-
-                gr.Markdown("---")
-                gr.Markdown("### Knowledge Base Categories")
-                gr.HTML("""
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                    <div class="metric-card">
-                        <h4 style="color: #3b82f6;">Account Security</h4>
-                        <p style="color: #64748b; font-size: 0.875rem;">Password reset, 2FA, account recovery</p>
-                    </div>
-                    <div class="metric-card">
-                        <h4 style="color: #10b981;">Device Support</h4>
-                        <p style="color: #64748b; font-size: 0.875rem;">Troubleshooting, setup, compatibility</p>
-                    </div>
-                    <div class="metric-card">
-                        <h4 style="color: #f59e0b;">Shipping & Returns</h4>
-                        <p style="color: #64748b; font-size: 0.875rem;">Order tracking, return policy, refunds</p>
-                    </div>
+            knowledge_results = gr.HTML(
+                value="""
+                <div class="metric-card">
+                    <p style="color: #64748b;">Enter a search query to explore the OmniTech knowledge base.</p>
+                    <p style="color: #64748b; font-size: 0.875rem;">
+                        Try queries like: "password reset", "device troubleshooting", "return policy", "warranty information"
+                    </p>
                 </div>
-                """)
+                """
+            )
 
-    # Navigation handlers
-    def switch_to_customer():
-        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-
-    def switch_to_agent():
-        return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), generate_agent_dashboard()
-
-    def switch_to_mcp():
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), generate_mcp_monitor()
-
-    def switch_to_knowledge():
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
-
-    customer_btn.click(switch_to_customer, outputs=[customer_view, agent_view, mcp_view, knowledge_view])
-    agent_btn.click(switch_to_agent, outputs=[customer_view, agent_view, mcp_view, knowledge_view, agent_dashboard])
-    mcp_btn.click(switch_to_mcp, outputs=[customer_view, agent_view, mcp_view, knowledge_view, mcp_monitor])
-    knowledge_btn.click(switch_to_knowledge, outputs=[customer_view, agent_view, mcp_view, knowledge_view])
+            gr.Markdown("---")
+            gr.Markdown("### Knowledge Base Categories")
+            gr.HTML("""
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                <div class="metric-card">
+                    <h4 style="color: #3b82f6;">Account Security</h4>
+                    <p style="color: #64748b; font-size: 0.875rem;">Password reset, 2FA, account recovery</p>
+                </div>
+                <div class="metric-card">
+                    <h4 style="color: #10b981;">Device Support</h4>
+                    <p style="color: #64748b; font-size: 0.875rem;">Troubleshooting, setup, compatibility</p>
+                </div>
+                <div class="metric-card">
+                    <h4 style="color: #f59e0b;">Shipping & Returns</h4>
+                    <p style="color: #64748b; font-size: 0.875rem;">Order tracking, return policy, refunds</p>
+                </div>
+            </div>
+            """)
 
     # Chat handlers
     send_btn.click(
@@ -613,6 +583,10 @@ with gr.Blocks(css=CUSTOM_CSS, theme=gr.themes.Soft(), title="OmniTech Support")
     # Refresh handlers
     refresh_agent_btn.click(lambda: generate_agent_dashboard(), outputs=agent_dashboard)
     refresh_mcp_btn.click(lambda: generate_mcp_monitor(), outputs=mcp_monitor)
+
+    # Auto-refresh dashboards when switching tabs
+    agent_tab.select(lambda: generate_agent_dashboard(), outputs=agent_dashboard)
+    mcp_tab.select(lambda: generate_mcp_monitor(), outputs=mcp_monitor)
 
     # Knowledge search handler
     search_btn.click(
@@ -642,4 +616,4 @@ if __name__ == "__main__":
     print("Starting Gradio interface...")
     print("=" * 60)
 
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
