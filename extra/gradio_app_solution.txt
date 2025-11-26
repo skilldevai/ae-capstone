@@ -3,22 +3,66 @@
 OmniTech Customer Support Chatbot - Gradio Interface
 ═══════════════════════════════════════════════════════════════════════════════
 
-Complete Gradio interface with:
-- Customer chat view
-- Agent dashboard with RAG analytics
-- MCP protocol monitor
-- Knowledge base search
+OVERVIEW
+--------
+This file creates the web-based user interface for the OmniTech Customer Support
+chatbot using Gradio (https://gradio.app). It provides:
 
-This integrates with the RAG agent and MCP server.
+    1. CHAT TAB - Customer-facing chat interface where users ask questions
+    2. AGENT DASHBOARD TAB - Shows RAG pipeline metrics and debug info (Developer Mode)
+    3. MCP MONITOR TAB - Displays MCP server status and tool activity (Developer Mode)
+    4. KNOWLEDGE SEARCH TAB - Direct search of the knowledge base (Developer Mode)
+    5. TICKETS TAB - View and filter support tickets (Developer Mode)
+
+KEY CONCEPTS
+------------
+- Gradio Blocks: The main container for building custom UIs with full control
+- Gradio Tabs: Used to organize different views/screens
+- gr.HTML: Renders custom HTML for rich displays and styling
+- Event Handlers: Connect UI components (buttons, inputs) to Python functions
+
+ARCHITECTURE
+------------
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    Gradio Web Interface                      │
+    ├─────────────────────────────────────────────────────────────┤
+    │   [Chat] [Agent Dashboard] [MCP Monitor] [Knowledge] [Tickets]
+    │                              │                               │
+    │                         AppState                             │
+    │                      (manages agent)                         │
+    │                              │                               │
+    │                         SyncAgent                            │
+    │                     (from rag_agent.py)                      │
+    │                              │                               │
+    │                      MCP Server Tools                        │
+    │                    (from mcp_server.py)                      │
+    └─────────────────────────────────────────────────────────────┘
+
+DEVELOPER MODE
+--------------
+Toggle "Developer Mode" checkbox to reveal debug tabs:
+- Agent Dashboard: See RAG metrics, LLM prompts, and responses
+- MCP Monitor: View tool calls, timing, and server stats
+- Knowledge Search: Query the vector database directly
+- Tickets: View support tickets created by the system
+
+This integrates with the RAG agent (rag_agent.py) and MCP server (mcp_server.py).
 """
 
-import gradio as gr
-import json
-import time
-from datetime import datetime
-from typing import Dict, List, Any
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMPORTS
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# Import the agent
+import gradio as gr          # Gradio library for building web UIs
+import json                  # JSON parsing for debug displays
+from datetime import datetime  # Timestamps for chat messages
+from typing import Dict, List, Any  # Type hints for better code clarity
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RAG Agent Import
+# Try to import the RAG agent - if it fails, the UI runs in "demo mode"
+# This allows testing the UI without the full backend running
+# ─────────────────────────────────────────────────────────────────────────────
 try:
     from rag_agent import SyncAgent
     AGENT_AVAILABLE = True
@@ -27,7 +71,20 @@ except ImportError:
     print("Warning: rag_agent not found. Running in demo mode.")
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 1. Application State                                                     ║
+# ║ SECTION 1: APPLICATION STATE                                             ║
+# ║                                                                          ║
+# ║ Purpose: Centralized state management for the entire application         ║
+# ║                                                                          ║
+# ║ The AppState class holds:                                                ║
+# ║   - The RAG agent instance (initialized lazily on first query)           ║
+# ║   - Conversation history for display in the chat                         ║
+# ║   - Session metrics (queries, resolutions, tickets)                      ║
+# ║   - Debug information from the last query (for Agent Dashboard)          ║
+# ║                                                                          ║
+# ║ WHY A CLASS? Using a class instead of global variables provides:         ║
+# ║   1. Encapsulation - all state in one place                              ║
+# ║   2. Clear initialization - __init__ sets up defaults                    ║
+# ║   3. Methods - related functionality grouped together                    ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 class AppState:
@@ -41,6 +98,9 @@ class AppState:
             'resolved_queries': 0,
             'tickets_created': 0
         }
+        # Store last debug info for Agent Dashboard
+        self.last_prompt = ""
+        self.last_response = ""
 
     def initialize_agent(self) -> bool:
         """Initialize the MCP agent."""
@@ -91,11 +151,41 @@ class AppState:
                 print(f"Knowledge search error: {e}")
         return []
 
+    def get_tickets(self, customer_email: str = None, status: str = None) -> List[Dict]:
+        """Get tickets via MCP tool."""
+        if self.agent:
+            try:
+                args = {"limit": 50}
+                if customer_email:
+                    args["customer_email"] = customer_email
+                if status:
+                    args["status"] = status
+
+                result = self.agent.loop.run_until_complete(
+                    self.agent.agent.call_tool("get_tickets", args)
+                )
+                return result.get("tickets", [])
+            except Exception as e:
+                print(f"Get tickets error: {e}")
+        return []
+
 
 app_state = AppState()
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 2. Custom CSS                                                            ║
+# ║ SECTION 2: CUSTOM CSS STYLES                                             ║
+# ║                                                                          ║
+# ║ Purpose: Define custom styling for the Gradio interface                  ║
+# ║                                                                          ║
+# ║ Gradio allows injecting CSS to customize the look and feel. We inject    ║
+# ║ this CSS via gr.HTML() since Gradio 6.0 doesn't support the css=         ║
+# ║ parameter on gr.Blocks().                                                ║
+# ║                                                                          ║
+# ║ KEY CSS CLASSES:                                                         ║
+# ║   .metric-card     - Styled cards for displaying metrics/info            ║
+# ║   .chat-message-*  - Styling for chat bubbles (user vs agent)            ║
+# ║   .tool-card       - Styling for MCP tool displays                       ║
+# ║   .nav-button      - Navigation button styling                           ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 CUSTOM_CSS = """
@@ -205,7 +295,19 @@ CUSTOM_CSS = """
 """
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 3. Helper Functions                                                      ║
+# ║ SECTION 3: HELPER FUNCTIONS                                              ║
+# ║                                                                          ║
+# ║ Purpose: Utility functions for formatting and generating HTML content    ║
+# ║                                                                          ║
+# ║ FUNCTIONS IN THIS SECTION:                                               ║
+# ║   format_message()           - Format chat messages as styled HTML       ║
+# ║   process_query_handler()    - Main handler for user query submission    ║
+# ║   generate_agent_dashboard() - Generate Agent Dashboard HTML             ║
+# ║   generate_mcp_monitor()     - Generate MCP Monitor HTML                 ║
+# ║   generate_tickets_display() - Generate Tickets tab HTML                 ║
+# ║   clear_chat()               - Reset conversation and metrics            ║
+# ║   get_status()               - Get system status string                  ║
+# ║   search_knowledge_direct()  - Search knowledge base directly            ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 def format_message(sender: str, content: str, timestamp: str) -> str:
@@ -264,6 +366,10 @@ def process_query_handler(query: str, customer_email: str, history: str):
     # Get prompt and response for debug display
     prompt = result.get('llm_prompt', 'No prompt available')
     response_json = json.dumps({k: v for k, v in result.items() if k != 'llm_prompt'}, indent=2)
+
+    # Store in app_state for Agent Dashboard
+    app_state.last_prompt = prompt
+    app_state.last_response = response_json
 
     return history, "", prompt, response_json
 
@@ -404,6 +510,109 @@ def generate_mcp_monitor() -> str:
     return html
 
 
+def generate_tickets_display(customer_filter: str = "", status_filter: str = "") -> str:
+    """Generate HTML display for tickets."""
+    # Ensure agent is initialized
+    if not app_state.agent:
+        app_state.initialize_agent()
+
+    # Apply filters
+    customer = customer_filter if customer_filter and customer_filter != "All" else None
+    status = status_filter if status_filter and status_filter != "All" else None
+
+    tickets = app_state.get_tickets(customer_email=customer, status=status)
+
+    html = """
+    <div style="margin-bottom: 1.5rem;">
+        <h2 style="margin: 0;">Support Tickets</h2>
+        <p style="color: #64748b; margin: 0.25rem 0 0 0;">View and track customer support tickets</p>
+    </div>
+    """
+
+    if not app_state.agent:
+        html += """
+        <div class="metric-card" style="text-align: center; padding: 2rem;">
+            <p style="color: #f59e0b; font-size: 1.1rem;">Agent not initialized</p>
+            <p style="color: #94a3b8; font-size: 0.9rem;">Send a chat message first to initialize the system.</p>
+        </div>
+        """
+        return html
+
+    if not tickets:
+        html += """
+        <div class="metric-card" style="text-align: center; padding: 2rem;">
+            <p style="color: #64748b; font-size: 1.1rem;">No tickets found</p>
+            <p style="color: #94a3b8; font-size: 0.9rem;">Tickets will appear here when customers submit support requests.</p>
+        </div>
+        """
+        return html
+
+    # Summary stats
+    open_count = len([t for t in tickets if t.get("status") == "Open"])
+    closed_count = len(tickets) - open_count
+
+    html += f"""
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">TOTAL TICKETS</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #1e293b; margin: 0.25rem 0 0 0;">{len(tickets)}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">OPEN</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #f59e0b; margin: 0.25rem 0 0 0;">{open_count}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">CLOSED</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #10b981; margin: 0.25rem 0 0 0;">{closed_count}</p>
+        </div>
+    </div>
+    """
+
+    # Tickets list
+    html += "<div style='display: flex; flex-direction: column; gap: 0.75rem;'>"
+
+    for ticket in tickets:
+        status = ticket.get("status", "Unknown")
+        priority = ticket.get("priority", "medium")
+
+        # Status badge color
+        status_color = "#f59e0b" if status == "Open" else "#10b981"
+        status_bg = "#fef3c7" if status == "Open" else "#d1fae5"
+
+        # Priority badge
+        priority_colors = {
+            "high": ("#dc2626", "#fee2e2"),
+            "medium": ("#f59e0b", "#fef3c7"),
+            "low": ("#3b82f6", "#dbeafe")
+        }
+        pri_color, pri_bg = priority_colors.get(priority, ("#64748b", "#f1f5f9"))
+
+        html += f"""
+        <div class="metric-card" style="padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <strong style="font-size: 1rem;">{ticket.get('id', 'N/A')}</strong>
+                    <span style="background: {status_bg}; color: {status_color}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem;">{status}</span>
+                    <span style="background: {pri_bg}; color: {pri_color}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.25rem;">{priority}</span>
+                </div>
+                <span style="color: #64748b; font-size: 0.8rem;">{ticket.get('created_at', 'N/A')[:16]}</span>
+            </div>
+            <p style="color: #64748b; margin: 0.5rem 0 0.25rem 0; font-size: 0.875rem;">
+                <strong>Customer:</strong> {ticket.get('customer_email', 'N/A')}
+            </p>
+            <p style="color: #64748b; margin: 0; font-size: 0.875rem;">
+                <strong>Issue:</strong> {ticket.get('issue_type', 'N/A')}
+            </p>
+            <p style="color: #475569; margin: 0.5rem 0 0 0; font-size: 0.9rem; line-height: 1.4;">
+                {ticket.get('description', 'No description')[:200]}{'...' if len(ticket.get('description', '')) > 200 else ''}
+            </p>
+        </div>
+        """
+
+    html += "</div>"
+    return html
+
+
 def clear_chat():
     """Clear conversation history."""
     app_state.conversation_history = []
@@ -474,7 +683,33 @@ def search_knowledge_direct(search_query: str, max_results: int) -> str:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║ 4. Gradio Interface                                                      ║
+# ║ SECTION 4: GRADIO INTERFACE DEFINITION                                   ║
+# ║                                                                          ║
+# ║ Purpose: Define the complete Gradio UI layout and event handlers         ║
+# ║                                                                          ║
+# ║ STRUCTURE:                                                               ║
+# ║   1. gr.Blocks() - Main container with title                             ║
+# ║   2. Header Row - Title banner + Developer Mode toggle                   ║
+# ║   3. gr.Tabs() containing all tabs:                                      ║
+# ║      - Chat Tab (always visible) - Main customer interface               ║
+# ║      - Agent Dashboard Tab (Developer Mode) - RAG metrics & debug        ║
+# ║      - MCP Monitor Tab (Developer Mode) - Server stats & tools           ║
+# ║      - Knowledge Search Tab (Developer Mode) - Direct KB search          ║
+# ║      - Tickets Tab (Developer Mode) - View support tickets               ║
+# ║   4. Footer - Branding and copyright                                     ║
+# ║   5. Event Handlers - Connect UI components to Python functions          ║
+# ║                                                                          ║
+# ║ KEY GRADIO CONCEPTS:                                                     ║
+# ║   - gr.Blocks: Container for custom layouts (vs gr.Interface)            ║
+# ║   - gr.Row/Column: Layout containers for organizing components           ║
+# ║   - gr.Tab: Tab panels within gr.Tabs                                    ║
+# ║   - gr.HTML: Render custom HTML content                                  ║
+# ║   - gr.Button: Clickable buttons with variants (primary/secondary)       ║
+# ║   - gr.Textbox: Text input fields                                        ║
+# ║   - gr.Dropdown: Selection dropdowns                                     ║
+# ║   - gr.Checkbox: Toggle switches                                         ║
+# ║   - .click()/.change()/.submit(): Event handler decorators               ║
+# ║   - gr.update(): Return value to update component properties             ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 with gr.Blocks(title="OmniTech Support") as demo:
@@ -619,10 +854,33 @@ with gr.Blocks(title="OmniTech Support") as demo:
             </div>
             """)
 
+        # Tickets Tab (hidden by default)
+        with gr.Tab("Tickets", id="tickets_tab", visible=False) as tickets_tab:
+            with gr.Row():
+                with gr.Column(scale=2):
+                    ticket_customer_filter = gr.Dropdown(
+                        label="Filter by Customer",
+                        choices=["All", "john.doe@email.com", "sarah.smith@email.com", "mike.johnson@email.com"],
+                        value="All"
+                    )
+                with gr.Column(scale=2):
+                    ticket_status_filter = gr.Dropdown(
+                        label="Filter by Status",
+                        choices=["All", "Open", "Closed"],
+                        value="All"
+                    )
+                with gr.Column(scale=1):
+                    refresh_tickets_btn = gr.Button("Refresh", variant="secondary")
+
+            tickets_display = gr.HTML(generate_tickets_display())
+
     # Footer
     gr.HTML("""
     <div style="text-align: center; padding: 1rem; margin-top: 1rem; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 0.8rem;">
-        OmniTech Customer Support • Powered by Claude AI
+        <div>OmniTech Customer Support • Enterprise AI Accelerator Capstone</div>
+        <div style="margin-top: 0.5rem;">
+            <a href="https://getskillsnow.com" target="_blank" style="color: #64748b; text-decoration: none;">&copy; 2025 Tech Skills Transformations</a>
+        </div>
     </div>
     """)
 
@@ -633,13 +891,15 @@ with gr.Blocks(title="OmniTech Support") as demo:
             gr.update(visible=enabled),  # agent_tab
             gr.update(visible=enabled),  # mcp_tab
             gr.update(visible=enabled),  # kb_tab
+            gr.update(visible=enabled),  # tickets_tab
             gr.update(visible=enabled),  # status_display
+            gr.update(selected="chat_tab"),  # tabs - always select chat tab on toggle
         )
 
     debug_mode.change(
         toggle_debug_mode,
         inputs=[debug_mode],
-        outputs=[agent_tab, mcp_tab, kb_tab, status_display]
+        outputs=[agent_tab, mcp_tab, kb_tab, tickets_tab, status_display, tabs]
     )
 
     # Chat handlers
@@ -666,7 +926,11 @@ with gr.Blocks(title="OmniTech Support") as demo:
     refresh_mcp_btn.click(lambda: generate_mcp_monitor(), outputs=mcp_monitor)
 
     # Auto-refresh dashboards when switching tabs
-    agent_tab.select(lambda: generate_agent_dashboard(), outputs=agent_dashboard)
+    def refresh_agent_tab():
+        """Refresh agent dashboard and debug info."""
+        return generate_agent_dashboard(), app_state.last_prompt, app_state.last_response
+
+    agent_tab.select(refresh_agent_tab, outputs=[agent_dashboard, prompt_display, response_display])
     mcp_tab.select(lambda: generate_mcp_monitor(), outputs=mcp_monitor)
 
     # Knowledge search handler
@@ -679,6 +943,34 @@ with gr.Blocks(title="OmniTech Support") as demo:
         search_knowledge_direct,
         inputs=[search_input, search_results_slider],
         outputs=knowledge_results
+    )
+
+    # Tickets handlers
+    def refresh_tickets(customer, status):
+        return generate_tickets_display(customer, status)
+
+    refresh_tickets_btn.click(
+        refresh_tickets,
+        inputs=[ticket_customer_filter, ticket_status_filter],
+        outputs=tickets_display
+    )
+    ticket_customer_filter.change(
+        refresh_tickets,
+        inputs=[ticket_customer_filter, ticket_status_filter],
+        outputs=tickets_display
+    )
+    ticket_status_filter.change(
+        refresh_tickets,
+        inputs=[ticket_customer_filter, ticket_status_filter],
+        outputs=tickets_display
+    )
+    def refresh_tickets_on_select():
+        """Refresh tickets and status when switching to tickets tab."""
+        return generate_tickets_display(), get_status()
+
+    tickets_tab.select(
+        refresh_tickets_on_select,
+        outputs=[tickets_display, status_display]
     )
 
     # Initialize on load
@@ -697,4 +989,12 @@ if __name__ == "__main__":
     print("Starting Gradio interface...")
     print("=" * 60)
 
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=True,
+        footer_links=[
+            {"text": "© 2025 Tech Skills Transformations", "url": "https://getskillsnow.com"}
+        ]
+    )
+
