@@ -592,10 +592,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("OmniTech Customer Support MCP Server")
-    print("=" * 60)
-    print(f"Knowledge base: {KNOWLEDGE_BASE_DIR}")
-    print(f"Support categories: {list(CANONICAL_QUERIES.keys())}")
-    print("=" * 60)
+    # Use stderr for startup messages - stdout is reserved for MCP JSON-RPC protocol
+    print("=" * 60, file=sys.stderr)
+    print("OmniTech Customer Support MCP Server", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print(f"Knowledge base: {KNOWLEDGE_BASE_DIR}", file=sys.stderr)
+    print(f"Support categories: {list(CANONICAL_QUERIES.keys())}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
     asyncio.run(main())
+
