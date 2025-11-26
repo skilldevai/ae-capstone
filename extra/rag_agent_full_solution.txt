@@ -28,7 +28,8 @@ except ImportError:
     print("MCP not installed. Install with: pip install mcp")
     sys.exit(1)
 
-import requests
+import os
+from huggingface_hub import InferenceClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,9 +39,17 @@ logger = logging.getLogger("omnitech-agent")
 # ║ 1. Configuration                                                         ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-# HuggingFace Inference API (free, no API key needed for basic usage)
+# HuggingFace Inference API
+# Set HF_TOKEN environment variable for authenticated access
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+HF_CLIENT = InferenceClient(token=HF_TOKEN) if HF_TOKEN else None
+
+if not HF_TOKEN:
+    print("WARNING: HF_TOKEN not set. LLM calls will be skipped.")
+    print("Set it with: export HF_TOKEN='your_token_here'")
+    print("Get a token from: https://huggingface.co/settings/tokens")
+    print()
 
 # Support detection keywords (for routing decision)
 SUPPORT_KEYWORDS = {
@@ -139,8 +148,8 @@ class OmniTechAgent:
             await self.session.initialize()
 
             # Verify connection and get available tools
-            tools = await self.session.list_tools()
-            self.available_tools = [t.name for t in tools]
+            tools_response = await self.session.list_tools()
+            self.available_tools = [t.name for t in tools_response.tools]
             logger.info(f"Connected to MCP server. Tools: {self.available_tools}")
             return True
 
@@ -214,55 +223,42 @@ class OmniTechAgent:
     # ─── LLM Integration ───────────────────────────────────────────────────
 
     def query_llm(self, prompt: str) -> str:
-        """Query HuggingFace Inference API."""
+        """Query HuggingFace Inference API using InferenceClient."""
+        if not HF_CLIENT:
+            logger.warning("HF_TOKEN not set. Get a token from https://huggingface.co/settings/tokens")
+            return json.dumps({
+                "response": "KNOWLEDGE_BASE_ONLY",
+                "action_needed": "none",
+                "confidence": 0.7
+            })
+
         try:
-            response = requests.post(
-                HF_API_URL,
-                headers={"Content-Type": "application/json"},
-                json={
-                    "inputs": prompt,
-                    "parameters": {
-                        "max_new_tokens": 500,
-                        "temperature": 0.7,
-                        "return_full_text": False
-                    }
-                },
-                timeout=30
+            logger.info("Calling HuggingFace LLM...")
+            # Use chat_completion for instruct models
+            response = HF_CLIENT.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                model=HF_MODEL,
+                max_tokens=500,
+                temperature=0.7
             )
 
-            if response.status_code == 200:
-                result = response.json()
-                if isinstance(result, list) and len(result) > 0:
-                    return result[0].get('generated_text', '')
-                elif isinstance(result, dict):
-                    return result.get('generated_text', '')
-                return str(result)
+            # Extract the response text
+            result_text = response.choices[0].message.content
+            logger.info(f"LLM response received ({len(result_text)} chars)")
+            return result_text
 
-            elif response.status_code == 503:
-                # Model loading
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"LLM error: {error_msg}")
+
+            # Check for model loading (503)
+            if "503" in error_msg or "loading" in error_msg.lower():
                 return json.dumps({
                     "response": "The AI model is warming up. Please try again in a moment.",
                     "action_needed": "none",
                     "confidence": 0.5
                 })
 
-            else:
-                logger.error(f"HF API error: {response.status_code}")
-                return json.dumps({
-                    "response": "KNOWLEDGE_BASE_ONLY",
-                    "action_needed": "none",
-                    "confidence": 0.7
-                })
-
-        except requests.exceptions.Timeout:
-            logger.error("HF API timeout")
-            return json.dumps({
-                "response": "KNOWLEDGE_BASE_ONLY",
-                "action_needed": "none",
-                "confidence": 0.7
-            })
-        except Exception as e:
-            logger.error(f"LLM error: {e}")
             return json.dumps({
                 "response": "KNOWLEDGE_BASE_ONLY",
                 "action_needed": "none",
@@ -645,3 +641,4 @@ async def interactive_mode():
 
 if __name__ == "__main__":
     asyncio.run(interactive_mode())
+
