@@ -33,7 +33,31 @@ The codespace is ready to use when you see output like the one shown below in it
 
 <br><br>
 
-**4. Open the labs file.**
+**4. Set up your HuggingFace API token.**
+
+The RAG agent uses HuggingFace's Inference API to generate LLM responses. You'll need a free API token:
+
+1. Go to https://huggingface.co and create an account (or log in)
+2. Navigate to https://huggingface.co/settings/tokens
+3. Click "Create new token", give it a name, and select "Read" access
+4. Copy the token (it starts with `hf_`)
+
+Set the token in your terminal before running the agent:
+
+```bash
+export HF_TOKEN="hf_your_token_here"
+```
+
+To make this permanent for your codespace session, add it to your shell profile:
+
+```bash
+echo 'export HF_TOKEN="hf_your_token_here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+<br><br>
+
+**5. Open the labs file.**
 
 You can open the [labs.md](./labs.md) file either in your codespace or in a separate browswer tab/instance.**
 
@@ -58,6 +82,11 @@ practice. Redistribution, republication, or reuse of any part of these materials
 purposes is not allowed without written permission.
 
 © 2025 TechUpSkills / Brent Laster. All rights reserved.
+
+
+
+
+
 
 
 
