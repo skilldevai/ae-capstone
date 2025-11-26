@@ -51,6 +51,5 @@
       ]
     }
   },
-  "postCreateCommand": "bash -i scripts/pysetup.sh py_env && bash -i scripts/startOllama.sh",
-  "postAttachCommand": "ollama serve &"
+  "postCreateCommand": "bash -i scripts/pysetup.sh py_env",
 }
