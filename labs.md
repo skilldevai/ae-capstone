@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Enterprise AI Accelerator Workshop - Day 3 Capstone
-## Revision 1.2 - 11/26/25
+## Revision 1.3 - 11/26/25
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -348,7 +348,7 @@ python -c "import rag_agent; print('RAG agent OK')"
 1. In this lab, we'll use the usual compare and merge process to build out the full version of the Gradio interface with the following features:
 
 - Customer chat view with email selection
-- Debug toggle to see additional functionality
+- *Developer mode* toggle to see additional functionality
 - Agent dashboard with RAG analytics
 - MCP protocol monitor
 - Knowledge base search view
@@ -434,8 +434,62 @@ code -d extra/gradio_app_solution.txt gradio_app.py
 ```
 python gradio_app
 ```
+<br>
 
 ![Running full app](./images/aia-3-36.png?raw=true "Running full app")
+
+<br><br>
+
+
+6. Now you can enter a message into the chat interface like:
+
+```
+I need to return my headphones
+```
+
+![Input](./images/aia-3-37.png?raw=true "Input")
+
+<br><br>
+
+7. When you click on *Send Message*, the app will go off and search in the RAG docs and find information about the topic and then build a prompt for the LLM to process. After the LLM processes it, it will return a response.
+
+
+![Response](./images/aia-3-38.png?raw=true "Response")
+
+<br><br>
+
+8. Click on the *Developer Mode* checkbox in the upper right. This will enable additional tabs with more information about the running app and what it has done. You'll see new tabs for *Agent Dashboard*, *MCP Monitor*, *Knowledge Search*, and *Tickets*.
+
+
+![Dev mode](./images/aia-3-39.png?raw=true "Dev mode")
+
+<br><br>
+
+9. If you click on the *Agent Dashboard*, you'll see statistics about the total queries, resolution rate, and # of tickets at the top. Then below that, you'll see info on recent RAG opertions. At the bottom, on the left you'll see the full prompt with RAG info that was constructed and sent to the LLM. On the bottom right, you'll see the full response from the LLM.
+
+![Agent dashboard](./images/aia-3-44.png?raw=true "Agent dashboard")
+
+<br><br>
+
+10. Clicking on the *MCP Monitor* dashboard shows total requests and some other info at the top. Then you'll see recent MCP calls. Further down this shows the available MCP calls.
+
+![MCP monitor](./images/aia-3-45.png?raw=true "MCP monitor")
+
+<br><br>
+
+11. The *Knowledge Search* tab lets you see search the RAG datastore to see what matching items are found and how similar they are.
+
+![Knowledge Search](./images/aia-3-46.png?raw=true "Knowledge Search")
+
+<br><br>
+
+12. Finally, the *Tickets* tab shows information about any support tickets that have been created by the system automatically.
+
+![Knowledge Search](./images/aia-3-47.png?raw=true "Knowledge Search")
+
+When done running the app, you can stop the gradio instance that's running in the terminal and close the app page.
+
+<br><br>
 
 <p align="center">
 <b>[END OF LAB]</b>
