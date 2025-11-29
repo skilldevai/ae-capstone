@@ -334,10 +334,10 @@ code -d extra/rag_agent_full_solution.txt rag_agent.py
 5. When done, you can verify the syntax is valid with the command below:
 
 ```
-python -c "import rag_agent; print('RAG agent OK')"
+diff -q rag_agent.py extra/rag_agent_full_solution.txt && python -c "import rag_agent; print('RAG agent  OK')" || echo
 ```
 
-![Verifying syntax](./images/aia-3-33.png?raw=true "Verifying syntax")
+![Verifying syntax](./images/aia-3-60.png?raw=true "Verifying syntax")
 
 <p align="center">
 <b>[END OF LAB]</b>
