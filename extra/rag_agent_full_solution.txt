@@ -59,6 +59,26 @@ SUPPORT_KEYWORDS = {
     "returns": ["return", "refund", "warranty", "exchange", "money back"],
 }
 
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║ Security: Suspicious Pattern Detection (Goal-Hijacking Prevention)       ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+# Patterns that may indicate prompt injection or goal-hijacking attempts
+SUSPICIOUS_PATTERNS = [
+    (r"ignore\s+(previous|prior|above|all)\s+(instructions?|prompts?|rules?)", "ignore_instructions"),
+    (r"disregard\s+(your|all|the)\s+(instructions?|rules?|guidelines?)", "disregard_rules"),
+    (r"new\s+instructions?:", "new_instructions"),
+    (r"you\s+are\s+now\s+a?", "role_change"),
+    (r"pretend\s+(to\s+be|you'?re)", "pretend_role"),
+    (r"act\s+as\s+(if|a|an)", "act_as"),
+    (r"forget\s+(everything|all|your)", "forget_context"),
+    (r"override\s+(your|the|all)", "override_attempt"),
+    (r"system\s*:\s*", "fake_system_prompt"),
+    (r"\[system\]", "fake_system_tag"),
+    (r"</?(system|assistant|user)>", "fake_role_tags"),
+    (r"reveal\s+(your|the)\s+(prompt|instructions?|system)", "reveal_prompt"),
+]
+
 # ANSI colors for terminal output
 BLUE = "\033[34m"
 GREEN = "\033[32m"
@@ -122,6 +142,125 @@ class OmniTechAgent:
         self.exit_stack: Optional[AsyncExitStack] = None
         self.mcp_calls_log: List[Dict] = []
         self.available_tools: List[str] = []
+
+        # Conversation history for multi-turn context
+        self.conversation_history: List[Dict[str, str]] = []
+        self.max_history = 3  # Keep last 3 exchanges
+
+        # Security logging
+        self.security_log: List[Dict] = []
+        self.max_security_log = 50  # Keep last 50 security events
+
+    def clear_history(self):
+        """Clear conversation history to start a fresh conversation."""
+        self.conversation_history = []
+        logger.info("Conversation history cleared")
+
+    # ─── Security Methods ─────────────────────────────────────────────────
+
+    def _log_security_event(self, event_type: str, severity: str, details: str,
+                            query: str = None, customer_email: str = None):
+        """
+        Log a security event for monitoring and auditing.
+
+        Args:
+            event_type: Type of event (e.g., 'suspicious_pattern', 'tool_blocked')
+            severity: 'low', 'medium', or 'high'
+            details: Human-readable description of the event
+            query: The user query that triggered the event (if applicable)
+            customer_email: Customer email associated with the event
+        """
+        event = {
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type,
+            "severity": severity,
+            "details": details,
+            "query": query[:200] if query else None,  # Truncate for safety
+            "customer_email": customer_email
+        }
+        self.security_log.append(event)
+
+        # Keep log bounded
+        if len(self.security_log) > self.max_security_log:
+            self.security_log = self.security_log[-self.max_security_log:]
+
+        # Also log to standard logger for server-side visibility
+        log_msg = f"[SECURITY:{severity.upper()}] {event_type}: {details}"
+        if severity == "high":
+            logger.warning(log_msg)
+        else:
+            logger.info(log_msg)
+
+    def _inspect_input(self, query: str, customer_email: str = None) -> Dict[str, Any]:
+        """
+        Inspect user input for potential goal-hijacking or prompt injection.
+
+        Returns:
+            Dict with 'flagged' (bool), 'patterns_matched' (list), and 'risk_level' (str)
+        """
+        query_lower = query.lower()
+        patterns_matched = []
+
+        for pattern, pattern_name in SUSPICIOUS_PATTERNS:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                patterns_matched.append(pattern_name)
+
+        # Determine risk level based on patterns matched
+        if len(patterns_matched) >= 3:
+            risk_level = "high"
+        elif len(patterns_matched) >= 1:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        flagged = len(patterns_matched) > 0
+
+        # Log if suspicious patterns detected
+        if flagged:
+            self._log_security_event(
+                event_type="suspicious_input",
+                severity=risk_level,
+                details=f"Detected patterns: {', '.join(patterns_matched)}",
+                query=query,
+                customer_email=customer_email
+            )
+
+        return {
+            "flagged": flagged,
+            "patterns_matched": patterns_matched,
+            "risk_level": risk_level
+        }
+
+    def get_security_log(self) -> List[Dict]:
+        """Return the security log for monitoring."""
+        return self.security_log.copy()
+
+    def clear_security_log(self):
+        """Clear the security log."""
+        self.security_log = []
+        logger.info("Security log cleared")
+
+    def _build_history_context(self) -> str:
+        """Build conversation history context for prompts."""
+        if not self.conversation_history:
+            return ""
+
+        history_lines = []
+        for exchange in self.conversation_history[-self.max_history:]:
+            history_lines.append(f"Customer: {exchange['user']}")
+            history_lines.append(f"Agent: {exchange['assistant']}")
+
+        return "\nPrevious Conversation:\n" + "\n".join(history_lines) + "\n"
+
+    def _save_exchange(self, user_message: str, assistant_response: str):
+        """Save an exchange to conversation history."""
+        self.conversation_history.append({
+            "user": user_message,
+            "assistant": assistant_response
+        })
+        # Keep only the last max_history exchanges
+        if len(self.conversation_history) > self.max_history:
+            self.conversation_history = self.conversation_history[-self.max_history:]
 
     # ─── MCP Connection ────────────────────────────────────────────────────
 
@@ -326,12 +465,16 @@ Based on this documentation:
 
 Provide a helpful response."""
 
-            # Add customer context and JSON format instruction
-            full_prompt = f"""{customer_context}
+            # Build conversation history context
+            history_context = self._build_history_context()
 
+            # Add customer context, history, and JSON format instruction
+            full_prompt = f"""{customer_context}
+{history_context}
 {formatted_prompt}
 
 IMPORTANT: Answer the customer's EXACT question. If they mention a specific product (like "headphones" or "laptop"), respond about THAT product, not products mentioned in the documentation.
+If there is conversation history, use it to provide continuity and reference previous exchanges when relevant.
 
 Respond with JSON containing:
 - "response": your answer (2-3 sentences)
@@ -405,6 +548,9 @@ JSON Response:"""
             result["customer_email"] = customer_email
             result["processing_time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
 
+            # Save this exchange to conversation history
+            self._save_exchange(query, result.get("response", ""))
+
             workflow_log.append("[SUCCESS] Response generated")
             return result
 
@@ -449,13 +595,18 @@ JSON Response:"""
             sources = list(set(m["source"] for m in matches[:3]))
             knowledge = "\n\n---\n\n".join(knowledge_parts)
 
+            # Build conversation history context
+            history_context = self._build_history_context()
+
             # Query LLM
             prompt = f"""{customer_context}
-
+{history_context}
 Based on this documentation:
 {knowledge}
 
 Answer this question: {query}
+
+If there is conversation history, use it to provide continuity and reference previous exchanges when relevant.
 
 Respond with JSON containing:
 - "response": your answer (2-3 sentences)
@@ -506,6 +657,10 @@ JSON Response:"""
             result["llm_model"] = HF_MODEL
             result["customer_email"] = customer_email
             result["processing_time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
+
+            # Save this exchange to conversation history
+            self._save_exchange(query, result.get("response", ""))
+
             return result
 
         except Exception as e:
@@ -525,12 +680,21 @@ JSON Response:"""
         Support queries → Classification workflow
         Exploratory queries → Direct RAG search
         """
+        # Security: Inspect input for suspicious patterns
+        security_check = self._inspect_input(query, customer_email)
+
+        # Route to appropriate workflow
         if is_support_query(query):
             logger.info("[ROUTING] Support query → Classification workflow")
-            return await self.handle_support_query(query, customer_email)
+            result = await self.handle_support_query(query, customer_email)
         else:
             logger.info("[ROUTING] Exploratory query → Direct RAG")
-            return await self.handle_exploratory_query(query, customer_email)
+            result = await self.handle_exploratory_query(query, customer_email)
+
+        # Add security metadata to result (for transparency in UI)
+        result["security_check"] = security_check
+
+        return result
 
     # ─── Server Stats ──────────────────────────────────────────────────────
 
@@ -579,6 +743,10 @@ class SyncAgent:
         """Get MCP call log."""
         return self.agent.mcp_calls_log
 
+    def clear_history(self):
+        """Clear conversation history."""
+        self.agent.clear_history()
+
     def get_server_stats(self) -> Dict[str, Any]:
         """Get server stats."""
         if not self.loop:
@@ -588,6 +756,14 @@ class SyncAgent:
     def get_available_tools(self) -> List[str]:
         """Get list of available MCP tools."""
         return self.agent.available_tools
+
+    def get_security_log(self) -> List[Dict]:
+        """Get security event log."""
+        return self.agent.get_security_log()
+
+    def clear_security_log(self):
+        """Clear security log."""
+        self.agent.clear_security_log()
 
     def __del__(self):
         """Cleanup."""
@@ -623,6 +799,9 @@ async def interactive_mode():
     print("  'demo' - run sample queries")
     print("  'stats' - show server statistics")
     print("  'email:xxx' - set customer email for context")
+    print("  'clear' - clear conversation history")
+    print()
+    print("Note: The agent remembers your last 3 exchanges for follow-up context!")
     print()
 
     customer_email = "john.doe@email.com"
@@ -653,6 +832,9 @@ async def interactive_mode():
                 stats = await agent.get_server_stats()
                 print(f"\n{BLUE}Server Stats:{RESET}")
                 print(json.dumps(stats, indent=2))
+            elif user_input.lower() == "clear":
+                agent.clear_history()
+                print("Conversation history cleared. Starting fresh!")
             elif user_input.lower().startswith("email:"):
                 customer_email = user_input[6:].strip()
                 print(f"Customer set to: {customer_email}")
@@ -683,4 +865,5 @@ async def interactive_mode():
 
 if __name__ == "__main__":
     asyncio.run(interactive_mode())
+
 
