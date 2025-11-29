@@ -120,11 +120,7 @@ When done, type `exit` to quit.
 code gradio_app_minimal.py
 ```
 
-1. In this lab, you'll add customer-related functionality to the MCP server. We'll use the diff-and-merge approach. Open the comparison:
-
-```
-code -d mcp_server.py extra/mcp_server_full_solution.txt
-```
+<br><br>
 
 2. Scroll through and note the various parts.
 
@@ -163,6 +159,11 @@ Alternatively, you can get to the running app, by switching to the *PORTS* tab (
 
 ![RAG response](./images/aia-3-31.png?raw=true "RAG response")
 
+<br><br>
+
+7. (Optional) If you want, you can ask a follow up question in the app.
+
+<br><br>
 
 <p align="center">
 <b>[END OF LAB]</b>
