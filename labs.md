@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Enterprise AI Accelerator Workshop - Day 3 Capstone
-## Revision 1.7 - 11/29/25
+## Revision 1.8 - 11/29/25
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -199,7 +199,7 @@ code -d extra/mcp_server_full_solution.txt mcp_server.py
 
 <br><br>
 
-3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code.
+3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code. Sections A-F below are just FYI if you want more written details about the sections. They do not require you to do any steps for them.
 
   A. **Overview & Documentation** (Lines 1-78)
 
@@ -279,11 +279,11 @@ code -d extra/rag_agent_full_solution.txt rag_agent.py
 
 <br>
 
-![Updating full agent](./images/aia-3-34.png?raw=true "Updating full agent")
+![Updating full agent](./images/aia-3-59.png?raw=true "Updating full agent")
 
 <br><br>
 
-3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code.
+3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code. Sections A-F below are just FYI if you want more written details about the sections. They do not require you to do any steps for them.
 
 
    A. **Header & Imports** (Lines 1-36)
@@ -371,7 +371,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
 
 <br><br>
 
-3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code.
+3. This is a large file with a lot of pieces. Just proceed through and observe and merge, being careful to merge all the changes. The information is just fyi if you're interested in what is implemented where in the code. Sections A-F below are just FYI if you want more written details about the sections. They do not require you to do any steps for them.
 
 ![Updating full interface](./images/aia-3-35.png?raw=true "Updating full interface")
 
@@ -394,7 +394,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
   - `clear_security_log()`: Clears the security log
   - Also stores conversation history, metrics (total queries, resolved, tickets), and last prompt/response for debugging
 
-  3. **Section 2: Custom CSS Styles** (Lines 175-295)
+  C. **Section 2: Custom CSS Styles** (Lines 175-295)
 
   CUSTOM_CSS string containing:
   - Font styling (Inter font family)
@@ -402,7 +402,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
   - Typing indicator animation (keyframes)
   - .nav-button, .metric-card, .chat-message-user, .chat-message-agent, .tool-card class definitions
 
-  4. **Section 3: Helper Functions** (Lines 297-795)
+  D. **Section 3: Helper Functions** (Lines 297-795)
 
   Utility functions for UI operations:
   - `format_message()`: Formats chat messages as styled HTML
@@ -416,7 +416,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
   - `get_status()`: Returns system status string
   - `search_knowledge_direct()`: Searches knowledge base and formats results as HTML with similarity bars
 
-  5. **Section 4: Gradio Interface Definition** (Lines 797-1120)
+  E. **Section 4: Gradio Interface Definition** (Lines 797-1120)
 
   The complete UI layout using gr.Blocks():
   - Header Row: Title banner with gradient background + Developer Mode checkbox
@@ -430,7 +430,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
   - Event Handlers: Debug toggle, send button, submit, clear, quick actions, refresh buttons, tab select auto-refresh, knowledge search,
   ticket filters, security log refresh/clear
 
-  6. **Section 5: Main Entry Point** (Lines 980-1001)
+  F. **Section 5: Main Entry Point** (Lines 980-1001)
 
 <br><br>
 
