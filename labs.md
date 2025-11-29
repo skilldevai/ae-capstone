@@ -242,13 +242,13 @@ code -d extra/mcp_server_full_solution.txt mcp_server.py
 
 <br><br>
 
-5. When done, you can verify the syntax is valid with the command below:
+5. When done, you can verify all the changes were merged and the syntax is valid with the command below:
 
 ```
-python -c "import mcp_server; print('MCP server OK')"
+diff -q mcp_server.py extra/mcp_server_full_solution.txt && python -c "import mcp_server; print('MCP server OK')"
 ```
 
-![Verifying syntax](./images/aia-3-33.png?raw=true "Verifying syntax")
+![Verifying syntax](./images/aia-3-58.png?raw=true "Verifying syntax")
 
 <p align="center">
 <b>[END OF LAB]</b>
