@@ -47,7 +47,7 @@ ls -la
 2. Let's examine the starter MCP server. Open the file:
 
 ```
-code mcp_server.py
+code mcp_server_minimal.py
 ```
 
    Scroll through and note the core parts:
@@ -63,16 +63,17 @@ code mcp_server.py
 code rag_agent_minimal.py
 ```
 
-   Scroll through and note the core parts:
+Scroll through and note the core parts:
    - **Section 1**: CONFIGURATION - Specifies model, KB path, and checks for Hugging Face token being in place
-   - **Section 2**: AGENT CLASS - Implements a minimal RAG agent with initialization and functions for:
+   - **Section 2**: CLASSIFICATION KEYWORDS - Defines keyword lists for categorizing queries (account_security, device_troubleshooting, etc.) and the `classify_query()` function
+   - **Section 3**: AGENT CLASS - Implements a minimal RAG agent with initialization and functions for:
       - `_load_pdf_documents()`: loading and parsing the knowledge base PDF documents
       - `_setup_vector_store()`: creating/refreshing the ChromaDB vector db
       - `connect_mcp()`: connect to MCP server for working with emails and orders (fires up server via stdio)
-      - `search_knowledge_base()`: search the vector db for revelant hits
+      - `search_knowledge_base()`: search the vector db for relevant hits
       - `query_llm()`: takes the prompt (with RAG context) and queries the Hugging Face model
-      - `query(): the workhorse - searches KB for relevant info, checks to see if need emails/order info, builds augmented prompt, sends it over to LLM and parses and delivers respose    
-   - **Section 3**: Interactive mode when run directly
+      - `query()`: the workhorse - classifies the query, searches KB for relevant info, checks to see if need emails/order info, builds augmented prompt, sends it over to LLM and parses and delivers response
+   - **Section 4**: Interactive mode when run directly
 
 <br><br>
 
