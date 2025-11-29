@@ -1,13 +1,13 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Enterprise AI Accelerator Workshop - Day 3 Capstone
-## Revision 1.4 - 11/27/25
+## Revision 1.5 - 11/29/25
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
 - Understanding of MCP protocol, classification workflow, and RAG architecture
 
 **Overview:**
-In this capstone project, you will build a complete customer support chatbot with a Gradio web interface. You'll start with classification-enabled MCP server and RAG agent components (similar to what you built in Labs 4-5) and progressively enhance them to create a full-featured application.
+In this capstone project, you will build a complete customer support chatbot with a Gradio web interface. 
 
 **Final Product Features:**
 - Web-based chat interface
