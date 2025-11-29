@@ -169,6 +169,17 @@ class AppState:
                 print(f"Get tickets error: {e}")
         return []
 
+    def get_security_log(self) -> List[Dict]:
+        """Get security event log from agent."""
+        if self.agent:
+            return self.agent.get_security_log()
+        return []
+
+    def clear_security_log(self):
+        """Clear the security log."""
+        if self.agent:
+            self.agent.clear_security_log()
+
 
 app_state = AppState()
 
@@ -613,6 +624,118 @@ def generate_tickets_display(customer_filter: str = "", status_filter: str = "")
     return html
 
 
+def generate_security_log_display() -> str:
+    """Generate HTML display for security events log."""
+    events = app_state.get_security_log()
+
+    html = """
+    <div style="margin-bottom: 1.5rem;">
+        <h2 style="margin: 0;">Security Monitor</h2>
+        <p style="color: #64748b; margin: 0.25rem 0 0 0;">Track potential prompt injection and goal-hijacking attempts</p>
+    </div>
+    """
+
+    if not app_state.agent:
+        html += """
+        <div class="metric-card" style="text-align: center; padding: 2rem;">
+            <p style="color: #f59e0b; font-size: 1.1rem;">Agent not initialized</p>
+            <p style="color: #94a3b8; font-size: 0.9rem;">Send a chat message first to initialize the system.</p>
+        </div>
+        """
+        return html
+
+    # Summary stats
+    high_count = len([e for e in events if e.get("severity") == "high"])
+    medium_count = len([e for e in events if e.get("severity") == "medium"])
+    low_count = len([e for e in events if e.get("severity") == "low"])
+
+    html += f"""
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">TOTAL EVENTS</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #1e293b; margin: 0.25rem 0 0 0;">{len(events)}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">HIGH SEVERITY</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #dc2626; margin: 0.25rem 0 0 0;">{high_count}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">MEDIUM SEVERITY</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #f59e0b; margin: 0.25rem 0 0 0;">{medium_count}</p>
+        </div>
+        <div class="metric-card">
+            <h4 style="color: #64748b; font-size: 0.875rem; margin: 0;">LOW SEVERITY</h4>
+            <p style="font-size: 1.75rem; font-weight: bold; color: #3b82f6; margin: 0.25rem 0 0 0;">{low_count}</p>
+        </div>
+    </div>
+    """
+
+    # Detection patterns info
+    html += """
+    <div class="metric-card" style="margin-bottom: 1.5rem;">
+        <h4 style="margin: 0 0 0.5rem 0;">Monitored Patterns</h4>
+        <p style="color: #64748b; font-size: 0.875rem; margin: 0;">
+            The agent monitors for common prompt injection patterns including:
+            <strong>ignore instructions</strong>, <strong>role changes</strong>,
+            <strong>fake system prompts</strong>, <strong>reveal prompt attempts</strong>, and more.
+        </p>
+    </div>
+    """
+
+    if not events:
+        html += """
+        <div class="metric-card" style="text-align: center; padding: 2rem; background: #f0fdf4; border-color: #bbf7d0;">
+            <p style="color: #16a34a; font-size: 1.1rem; margin: 0;">✓ No suspicious activity detected</p>
+            <p style="color: #64748b; font-size: 0.9rem; margin: 0.5rem 0 0 0;">
+                All queries have passed security inspection.
+            </p>
+        </div>
+        """
+        return html
+
+    # Events list (most recent first)
+    html += "<h3>Security Events</h3>"
+    html += "<div style='display: flex; flex-direction: column; gap: 0.75rem;'>"
+
+    for event in reversed(events[-20:]):  # Show last 20, most recent first
+        severity = event.get("severity", "low")
+        event_type = event.get("event_type", "unknown")
+        details = event.get("details", "No details")
+        query = event.get("query", "")
+        timestamp = event.get("timestamp", "")[:19]  # Trim microseconds
+        customer = event.get("customer_email", "N/A")
+
+        # Severity badge colors
+        severity_colors = {
+            "high": ("#dc2626", "#fee2e2"),
+            "medium": ("#f59e0b", "#fef3c7"),
+            "low": ("#3b82f6", "#dbeafe")
+        }
+        sev_color, sev_bg = severity_colors.get(severity, ("#64748b", "#f1f5f9"))
+
+        html += f"""
+        <div class="metric-card" style="padding: 1rem; border-left: 4px solid {sev_color};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <strong style="font-size: 1rem;">{event_type}</strong>
+                    <span style="background: {sev_bg}; color: {sev_color}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem; text-transform: uppercase;">{severity}</span>
+                </div>
+                <span style="color: #64748b; font-size: 0.8rem;">{timestamp}</span>
+            </div>
+            <p style="color: #475569; margin: 0.5rem 0 0.25rem 0; font-size: 0.875rem;">
+                <strong>Details:</strong> {details}
+            </p>
+            <p style="color: #64748b; margin: 0; font-size: 0.875rem;">
+                <strong>Customer:</strong> {customer}
+            </p>
+            {f'<div style="margin-top: 0.5rem; padding: 0.5rem; background: #fef2f2; border-radius: 4px; font-family: monospace; font-size: 0.8rem; color: #991b1b; word-break: break-all;">{query[:150]}{"..." if len(query) > 150 else ""}</div>' if query else ''}
+        </div>
+        """
+
+    html += "</div>"
+    return html
+
+
 def clear_chat():
     """Clear conversation history."""
     app_state.conversation_history = []
@@ -874,6 +997,13 @@ with gr.Blocks(title="OmniTech Support") as demo:
 
             tickets_display = gr.HTML(generate_tickets_display())
 
+        # Security Log Tab (hidden by default)
+        with gr.Tab("Security", id="security_tab", visible=False) as security_tab:
+            security_display = gr.HTML(generate_security_log_display())
+            with gr.Row():
+                refresh_security_btn = gr.Button("Refresh", variant="secondary")
+                clear_security_btn = gr.Button("Clear Log", variant="secondary")
+
     # Footer
     gr.HTML("""
     <div style="text-align: center; padding: 1rem; margin-top: 1rem; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 0.8rem;">
@@ -892,6 +1022,7 @@ with gr.Blocks(title="OmniTech Support") as demo:
             gr.update(visible=enabled),  # mcp_tab
             gr.update(visible=enabled),  # kb_tab
             gr.update(visible=enabled),  # tickets_tab
+            gr.update(visible=enabled),  # security_tab
             gr.update(visible=enabled),  # status_display
             gr.update(selected="chat_tab"),  # tabs - always select chat tab on toggle
         )
@@ -899,7 +1030,7 @@ with gr.Blocks(title="OmniTech Support") as demo:
     debug_mode.change(
         toggle_debug_mode,
         inputs=[debug_mode],
-        outputs=[agent_tab, mcp_tab, kb_tab, tickets_tab, status_display, tabs]
+        outputs=[agent_tab, mcp_tab, kb_tab, tickets_tab, security_tab, status_display, tabs]
     )
 
     # Chat handlers
@@ -972,6 +1103,18 @@ with gr.Blocks(title="OmniTech Support") as demo:
         refresh_tickets_on_select,
         outputs=[tickets_display, status_display]
     )
+
+    # Security log handlers
+    def refresh_security():
+        return generate_security_log_display()
+
+    def clear_security():
+        app_state.clear_security_log()
+        return generate_security_log_display()
+
+    refresh_security_btn.click(refresh_security, outputs=security_display)
+    clear_security_btn.click(clear_security, outputs=security_display)
+    security_tab.select(refresh_security, outputs=security_display)
 
     # Initialize on load
     demo.load(lambda: (app_state.initialize_agent(), get_status())[1], outputs=status_display)
