@@ -533,7 +533,7 @@ I need to return my headphones
 
 <br><br>
 
-3. On the form for the new Space, provide a name, optionally a description and license. Make sure Gradio is selected as the *Space SDK*. You can just accept the rest of the defaults on that page. Scroll to the bottom and click to save the Space.
+3. On the form for the new Space, provide a name, optionally a description and license. Make sure Gradio is selected as the *Space SDK*. You can just accept the rest of the defaults on that page. Scroll to the bottom and click *Create Space*.
 
 ![New space](./images/aia-3-50.png?raw=true "New space")
 
@@ -560,7 +560,7 @@ I need to return my headphones
 
 <br><br>
 
-7. Now, in the root of the project in a terminal in the codespace, run the following commands to get setup to update the space. Replace HF_USERID with your actual Hugging Face userid.
+7. Now, in the root of the project in a terminal in the codespace, run the following commands to get setup to update the space. Replace HF_USERID with your actual Hugging Face userid. (If you named your space something other than "capstone", replace "capstone" in the commands below with the name of your space.)
 
 ```
 git clone https://huggingface.co/spaces/*HF_USERID*/capstone
@@ -575,7 +575,7 @@ cd capstone
 ../scripts/prepare_hf_spaces.sh .
 ```
 
-This should copy necessary files over that are needed for the deployment. It also sets up a README file with some needed values.
+This should copy necessary files over that are needed for the deployment. It also sets up a README file with some needed values. It will also print out a reminder about making sure the HF_TOKEN secret is setup. Ignore that as long as you have it setup.
 
 <br><br>
 
@@ -615,7 +615,7 @@ git push
 
 14. Now, you can interact with the app as you did when running it local.
 
-![App interaction](./images/aia-3-57.png?raw=true "App interaction")
+![App interaction](./images/aia-3-65.png?raw=true "App interaction")
 
 <br><br>
 
