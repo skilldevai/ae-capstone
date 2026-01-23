@@ -16,7 +16,7 @@ These instructions will guide you through running the container environment loca
 <br>
 
 &emsp;&emsp;&emsp;&emsp;Click here ➡️ 
-<a href="https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/skilldevai/ae-cap">
+<a href="https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/skilldevai/ae-capstone">
   <img src="https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&style=for-the-badge"
        alt="Open in Dev Containers" height="48">    
 </a>     
