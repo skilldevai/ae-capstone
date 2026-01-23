@@ -8,7 +8,7 @@ These instructions will guide you through configuring a GitHub Codespaces enviro
 
 **1. Click on the button below to start a new codespace from this repository.**
 
-Click here ➡️  [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/skillrepos/ae-capstone-starter?quickstart=1)
+Click here ➡️  [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/skillrepos/ae-capstone?quickstart=1)
 
 <br><br>
 
