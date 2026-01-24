@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.5 - 01/23/25
+## Revision 1.6 - 01/24/25
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -91,7 +91,7 @@ python rag_agent_minimal.py
 
 <br>
 
-![Running the agent](./images/aia-3-27.png?raw=true "Running the agent")
+![Running the agent](./images/ae78.png?raw=true "Running the agent")
 
 <br><br>
 
@@ -140,7 +140,7 @@ python gradio_app_minimal.py
 
 4. When this starts, you should see a pop-up in the lower right that has a button to click to open the app. If you click that and it instead opens a new codespace instance, just close that new tab, go back and try the process again.
 
-![Running the gradio app](./images/aia-3-27.png?raw=true "Running the gradio app")
+![Running the gradio app](./images/ae79.png?raw=true "Running the gradio app")
 
 <br>
 
