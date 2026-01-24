@@ -249,7 +249,7 @@ code -d extra/mcp_server_full_solution.txt mcp_server.py
 diff -q mcp_server.py extra/mcp_server_full_solution.txt && python -c "import mcp_server; print('MCP server OK')"
 ```
 
-![Verifying syntax](./images/aia-3-58.png?raw=true "Verifying syntax")
+![Verifying syntax](./images/ae82.png?raw=true "Verifying syntax")
 
 <p align="center">
 <b>[END OF LAB]</b>
