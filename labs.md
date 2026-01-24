@@ -187,9 +187,10 @@ Alternatively, you can get to the running app, by switching to the *PORTS* tab (
 
 <br><br>
 
-2. Start the process by running the command below.
+2. Start the process by switching back to the root of the project and running the command below.
 
 ```
+cd ..
 code -d extra/mcp_server_full_solution.txt mcp_server.py
 ```
 
