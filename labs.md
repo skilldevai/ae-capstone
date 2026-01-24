@@ -338,7 +338,7 @@ code -d extra/rag_agent_full_solution.txt rag_agent.py
 diff -q rag_agent.py extra/rag_agent_full_solution.txt && python -c "import rag_agent; print('RAG agent  OK')" || echo
 ```
 
-![Verifying syntax](./images/aia-3-60.png?raw=true "Verifying syntax")
+![Verifying syntax](./images/ae84.png?raw=true "Verifying syntax")
 
 <p align="center">
 <b>[END OF LAB]</b>
@@ -441,7 +441,7 @@ code -d extra/gradio_app_solution.txt gradio_app.py
 ```
 diff -q gradio_app.py extra/gradio_app_solution.txt && python -m py_compile gradio_app.py && echo "Gradio app OK"
 ```
-![Validating app](./images/aia-3-61.png?raw=true "Validating app")
+![Validating app](./images/ae83.png?raw=true "Validating app")
 
 <br><br>
 
@@ -536,7 +536,7 @@ I need to return my headphones
 
 3. On the form for the new Space, provide a name, optionally a description and license. Make sure Gradio is selected as the *Space SDK*. You can just accept the rest of the defaults on that page. Scroll to the bottom and click *Create Space*.
 
-![New space](./images/aia-3-50.png?raw=true "New space")
+![New space](./images/ae85.png?raw=true "New space")
 
 <br><br>
 
@@ -556,12 +556,12 @@ I need to return my headphones
 6. In the dialog, provide the name, description, and your actual token value, then click *Save*.
 
 
-![Secret values](./images/aia-3-9.png?raw=true "Secret values")
+![Secret values](./images/ae86.png?raw=true "Secret values")
 
 
 <br><br>
 
-7. Now, in the root of the project in a terminal in the codespace, run the following commands to get setup to update the space. Replace HF_USERID with your actual Hugging Face userid. (If you named your space something other than "capstone", replace "capstone" in the commands below with the name of your space.)
+7. Now, in the root of the project in a terminal, run the following commands to get setup to update the space. Replace HF_USERID with your actual Hugging Face userid. (If you named your space something other than "capstone", replace "capstone" in the commands below with the name of your space.)
 
 ```
 git clone https://huggingface.co/spaces/*HF_USERID*/capstone
