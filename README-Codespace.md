@@ -44,15 +44,15 @@ B. Navigate to (https://huggingface.co/settings/tokens)[https://huggingface.co/s
 
 <br>
 
-C. Select **Read** for the token type and provide a name.
+C. Select **Write** for the token type and provide a name.
 
-![Read token](./images/aia-3-21.png?raw=true "Read token")
+![Read token](./images/ae80.png?raw=true "Read token")
 
 <br>
    
 D. Click on the *Create token* button and copy the token (it starts with `hf_`). Save it somewhere.
 
-![Save/copy token](./images/aia-3-22.png?raw=true "Save/copy token")
+![Save/copy token](./images/ae81.png?raw=true "Save/copy token")
 
 <br>
 
