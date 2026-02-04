@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.8 - 02/04/26
+## Revision 1.9 - 02/04/26
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -679,7 +679,7 @@ git push
                               │  └───────────────┘  │
                               └─────────────────────┘
 ```
-```
+
 
 ### Next Steps
 
