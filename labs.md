@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.9 - 02/04/26
+## Revision 1.10 - 02/04/26
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -540,7 +540,7 @@ I need to return my headphones
 
 <br><br>
 
-4. While you are on that space, we need to setup a secret with our HF token. Click on the *Settings* link on the top right.
+4. On that next page, we need to setup a secret with our HF token. Click on the *Settings* link on the top right.
 
 ![Settings](./images/aia-3-51.png?raw=true "Settings")
 
