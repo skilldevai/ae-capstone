@@ -169,7 +169,7 @@ DOCUMENT_CATEGORIES = {
 # ║                                                                          ║
 # ║ Purpose: Define support categories, prompt templates, and keywords       ║
 # ║                                                                          ║
-# ║ Each category contains:                                                  ║               ║
+# ║ Each category contains:                                                  ║
 # ║                                                                          ║
 # ║ HOW CLASSIFICATION WORKS:                                                ║
 # ║   1. User asks: "How do I reset my password?"                            ║
@@ -178,7 +178,7 @@ DOCUMENT_CATEGORIES = {
 # ║   4. Returns: {"suggested_query": "account_security", "confidence": 1.0} ║
 # ║   5. RAG agent uses the account_security prompt_template                 ║
 # ║                                                                          ║
-# ║ TO ADD A NEW CATEGORY:                                                   ║                  ║
+# ║ TO ADD A NEW CATEGORY:                                                   ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 CANONICAL_QUERIES = {
@@ -505,6 +505,9 @@ class OmniTechSupportServer:
     #
     # HOW RAG RETRIEVAL WORKS:
     #
+    # ChromaDB uses a default embedding model (all-MiniLM-L6-v2) which is
+    # downloaded automatically on first run. For production, consider using
+    # a more powerful embedding model.
     # ─────────────────────────────────────────────────────────────────────────
 
     def _load_pdf_documents(self) -> List[Dict]:
@@ -707,7 +710,7 @@ class OmniTechSupportServer:
                     "category": meta.get("category", "unknown"),
                     "source": meta.get("source", "Unknown"),
                     "distance": dist,
-                    "similarity": round(1 - dist, 3) if dist < 1 else 0
+                    "similarity": round(1 / (1 + dist), 3)
                 })
 
         result = {
@@ -1220,7 +1223,7 @@ class OmniTechSupportServer:
 # ║                                                                          ║
 # ║ Purpose: Start the MCP server and handle the stdio communication         ║
 # ║                                                                          ║
-# ║ HOW MCP COMMUNICATION WORKS:                                             ║     ║
+# ║ HOW MCP COMMUNICATION WORKS:                                             ║
 # ║                                                                          ║
 # ║ IMPORTANT: Never print to stdout! It will corrupt the JSON-RPC protocol. ║
 # ║ Always use: print("message", file=sys.stderr) or logger.info()           ║
