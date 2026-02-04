@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.7 - 02/04/26
+## Revision 1.8 - 02/04/26
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -568,6 +568,8 @@ git clone https://huggingface.co/spaces/*HF_USERID*/capstone
 cd capstone
 ```
 
+![Cloning](./images/ae166.png?raw=true "Cloning")
+
 <br><br>
 
 8. We have a script to get files setup for Hugging Face deployment. Run the script from this directory as follows:
@@ -577,6 +579,9 @@ cd capstone
 ```
 
 This should copy necessary files over that are needed for the deployment. It also sets up a README file with some needed values. It will also print out a reminder about making sure the HF_TOKEN secret is setup. Ignore that as long as you have it setup.
+
+
+![Space prep](./images/ae167.png?raw=true "Space prep")
 
 <br><br>
 
