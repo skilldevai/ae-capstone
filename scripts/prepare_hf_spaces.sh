@@ -97,19 +97,22 @@ cat > "$OUTPUT_DIR/requirements.txt" << 'EOF'
 mcp>=1.22.0
 
 # Vector database for RAG
-chromadb>=0.4.0
+chromadb>=0.5.0
 
 # PDF processing
 pypdf>=5.0.0
 
-# Gradio UI (usually pre-installed on HF Spaces, but specify version)
-gradio>=4.19.0
+# Gradio UI - let HF Spaces handle the version
+# gradio (pre-installed on HF Spaces)
 
-# HuggingFace Hub for LLM inference
-huggingface_hub>=0.20.0
+# HuggingFace Hub - let HF Spaces handle the version  
+# huggingface_hub (pre-installed on HF Spaces)
 
 # Sentence transformers for embeddings (used by ChromaDB)
-sentence-transformers>=2.2.0
+sentence-transformers>=3.0.0
+
+# Explicitly pin tokenizers to Python 3.13 compatible version
+tokenizers>=0.20.0
 EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,7 +127,6 @@ emoji: 🤖
 colorFrom: blue
 colorTo: indigo
 sdk: gradio
-sdk_version: "4.44.0"
 app_file: app.py
 pinned: false
 license: mit
