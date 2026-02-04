@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.6 - 01/24/25
+## Revision 1.7 - 02/04/26
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -78,7 +78,7 @@ code rag_agent_minimal.py
 
 <br><br>
 
-4. Let's run the agent in test mode. This will automatically start the MCP server: (Make sure you've set the *HF_TOKEN* environment variable in the terminal.)
+4. Let's run the agent in test mode. This will automatically start the MCP server: (**Make sure you've set the *HF_TOKEN* environment variable in the terminal. See README.md**)
 
 ```
 python rag_agent_minimal.py
