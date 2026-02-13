@@ -4,29 +4,25 @@ Minimal RAG Agent for OmniTech Support
 =======================================
 
 This simplified version demonstrates:
-- RAG (Retrieval Augmented Generation): Loading PDFs and using semantic search
-- MCP Integration: Calling tools to fetch emails and orders
+- MCP Integration: Calling tools for classification, knowledge search, emails, and orders
 - LLM Chat: Using Hugging Face models to generate helpful responses
+- Agent Orchestration: Coordinating MCP tools and LLM to answer queries
 
 Key Components:
-1. PDF Loading: Extracts text from PDF files in knowledge_base_pdfs/
-2. Vector Store (ChromaDB): Stores PDF content with embeddings for semantic search
-3. MCP Client: Connects to our MCP server to search emails/orders
-4. LLM (Hugging Face): Generates natural, helpful responses
+1. MCP Client: Connects to our MCP server for all data operations
+   (classification, knowledge search, email/order lookup)
+2. LLM (Hugging Face): Generates natural, helpful responses
+3. Orchestration: Routes queries through classify → retrieve → generate
 
-Perfect for learning how real RAG + MCP work together!
+Perfect for learning how agents orchestrate MCP tools!
 """
 
 import os
 import re
 import json
-from pathlib import Path
 from huggingface_hub import InferenceClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-import chromadb
-from chromadb.utils import embedding_functions
-import pypdf
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -43,67 +39,20 @@ if not HF_TOKEN:
     print("Get a token from: https://huggingface.co/settings/tokens")
     print()
 
-# Knowledge base directory - where the PDF files live (in parent directory)
-KNOWLEDGE_BASE_DIR = Path(__file__).parent.parent / "knowledge_base_pdfs"
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CLASSIFICATION KEYWORDS (for determining query category)
-# ═══════════════════════════════════════════════════════════════════════════
-
-# Keywords that indicate specific support categories
-CATEGORY_KEYWORDS = {
-    "account_security": [
-        "password", "reset", "login", "account", "locked", "security",
-        "authentication", "sign in", "signin", "log in", "2fa", "two-factor"
-    ],
-    "device_troubleshooting": [
-        "won't turn on", "not working", "broken", "device", "repair",
-        "troubleshoot", "fix", "error", "crash", "frozen", "battery",
-        "charging", "screen", "power", "restart", "reboot"
-    ],
-    "shipping_inquiry": [
-        "shipping", "delivery", "tracking", "ship", "arrive", "eta",
-        "where is my", "transit", "carrier"
-    ],
-    "returns_refunds": [
-        "return", "refund", "exchange", "money back", "warranty",
-        "replacement", "defective"
-    ]
-}
-
-def classify_query(query: str) -> tuple[str, str]:
-    """
-    Classify a query into a category based on keywords.
-
-    Returns:
-        Tuple of (workflow_type, category_name)
-        workflow_type: "classification" or "direct_rag"
-        category_name: The detected category or "general_inquiry"
-    """
-    query_lower = query.lower()
-
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in query_lower:
-                return ("classification", category)
-
-    # No specific category matched - use direct RAG
-    return ("direct_rag", "general_inquiry")
-
 # ═══════════════════════════════════════════════════════════════════════════
 # AGENT CLASS
 # ═══════════════════════════════════════════════════════════════════════════
 
 class SyncAgent:
     """
-    Minimal RAG Agent that:
-    1. Searches knowledge base for relevant info
-    2. Can use MCP tools to search emails/orders
+    Minimal RAG Agent that orchestrates MCP tools and LLM:
+    1. Uses MCP tools to classify queries and search knowledge base
+    2. Uses MCP tools to search emails/orders when relevant
     3. Generates helpful responses using Hugging Face LLMs
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the agent with vector store and LLM
+        """Initialize the agent
 
         Args:
             verbose: If True, print detailed workflow information (for CLI mode)
@@ -115,9 +64,6 @@ class SyncAgent:
         self.conversation_history = []
         self.max_history = 3  # Keep last 3 exchanges for context
 
-        # Initialize vector store
-        self._setup_vector_store()
-
         # MCP session (will be set when connecting)
         self.mcp_session = None
         self.mcp_tools = []
@@ -128,86 +74,8 @@ class SyncAgent:
         if self.verbose:
             print("[HISTORY] Conversation history cleared")
 
-    def _load_pdf_documents(self):
-        """Load and parse PDF documents from knowledge base directory."""
-        documents = []
-
-        if not KNOWLEDGE_BASE_DIR.exists():
-            print(f"✗ Knowledge base directory not found: {KNOWLEDGE_BASE_DIR}")
-            print("  Please ensure knowledge_base_pdfs/ directory exists with PDF files")
-            return documents
-
-        print(f"Loading PDFs from: {KNOWLEDGE_BASE_DIR}")
-
-        for filename in os.listdir(KNOWLEDGE_BASE_DIR):
-            if not filename.endswith('.pdf'):
-                continue
-
-            file_path = KNOWLEDGE_BASE_DIR / filename
-
-            try:
-                with open(file_path, 'rb') as f:
-                    pdf_reader = pypdf.PdfReader(f)
-                    text = ""
-                    for page in pdf_reader.pages:
-                        text += page.extract_text() + " "
-
-                # Clean up whitespace
-                text = re.sub(r'\s+', ' ', text.strip())
-
-                documents.append({
-                    "id": filename.replace('.pdf', ''),
-                    "text": text,
-                    "source": filename
-                })
-
-                print(f"  ✓ Loaded: {filename} ({len(text)} chars)")
-
-            except Exception as e:
-                print(f"  ✗ Failed to load {filename}: {e}")
-
-        return documents
-
-    def _setup_vector_store(self):
-        """Set up ChromaDB with PDF documentation (real RAG!)"""
-
-        # Create ChromaDB client
-        chroma_client = chromadb.Client()
-
-        # Use default embedding function
-        embedding_function = embedding_functions.DefaultEmbeddingFunction()
-
-        # Try to delete old collection if it exists
-        try:
-            chroma_client.delete_collection("omnitech_docs_minimal")
-        except:
-            pass
-
-        # Create fresh collection
-        self.collection = chroma_client.create_collection(
-            name="omnitech_docs_minimal",
-            embedding_function=embedding_function
-        )
-
-        # Load PDF documents
-        documents = self._load_pdf_documents()
-
-        if not documents:
-            print("✗ No documents loaded! RAG will not work properly.")
-            return
-
-        # Add documents to vector store
-        for doc in documents:
-            self.collection.add(
-                documents=[doc["text"]],
-                metadatas=[{"source": doc["source"]}],
-                ids=[doc["id"]]
-            )
-
-        print(f"✓ Knowledge base ready: {self.collection.count()} documents loaded")
-
     async def connect_mcp(self):
-        """Connect to the MCP server to access email/order tools"""
+        """Connect to the MCP server to access all tools"""
 
         server_params = StdioServerParameters(
             command="python3",
@@ -227,7 +95,9 @@ class SyncAgent:
         response = await self.mcp_session.list_tools()
         self.mcp_tools = response.tools
 
-        print(f"✓ Connected to MCP server with {len(self.mcp_tools)} tools")
+        print(f"✓ Connected to MCP server with {len(self.mcp_tools)} tools:")
+        for tool in self.mcp_tools:
+            print(f"  • {tool.name}: {tool.description[:60]}...")
 
     async def cleanup(self):
         """Clean up MCP connection"""
@@ -235,35 +105,6 @@ class SyncAgent:
             await self.mcp_session.__aexit__(None, None, None)
         if hasattr(self, 'stdio_transport'):
             await self.stdio_transport.__aexit__(None, None, None)
-
-    def search_knowledge_base(self, query: str, n_results: int = 2) -> str:
-        """
-        Search the vector store for relevant documentation.
-
-        Args:
-            query: User's question
-            n_results: How many relevant docs to retrieve
-
-        Returns:
-            Relevant documentation as a string
-        """
-
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
-
-        if not results['documents'] or not results['documents'][0]:
-            return "No relevant documentation found."
-
-        # Combine retrieved documents WITH source attribution
-        docs_with_sources = []
-        for i, doc in enumerate(results['documents'][0]):
-            source = results['metadatas'][0][i].get('source', 'Unknown')
-            docs_with_sources.append(f"[Source: {source}]\n{doc}")
-
-        context = "\n\n---\n\n".join(docs_with_sources)
-        return context
 
     def query_llm(self, prompt: str) -> str:
         """
@@ -320,9 +161,9 @@ class SyncAgent:
         Main query function - this is where the magic happens!
 
         Process:
-        1. Classify the query to determine workflow
-        2. Search knowledge base for relevant info
-        3. Check if we need to search emails/orders
+        1. Classify the query via MCP tool
+        2. Search knowledge base via MCP tool
+        3. Check if we need to search emails/orders via MCP tools
         4. Send everything to HF LLM to generate response
         """
 
@@ -331,38 +172,52 @@ class SyncAgent:
             print(f"Processing: {user_message[:50]}...")
             print(f"{'='*60}")
 
-            # Step 0: Classify the query
-            workflow_type, category = classify_query(user_message)
-            print(f"\n[WORKFLOW DETECTION]")
-            if workflow_type == "classification":
-                print(f"  → Query Type: CLASSIFICATION WORKFLOW")
-                print(f"  → Category: {category}")
-                print(f"  → This query will use category-specific handling")
-            else:
-                print(f"  → Query Type: DIRECT RAG")
-                print(f"  → Category: {category}")
-                print(f"  → This query will use general knowledge base search")
+        # Step 1: Classify the query via MCP
+        if self.verbose:
+            print(f"\n[STEP 1: CLASSIFYING QUERY VIA MCP]")
+            print(f"  → Calling MCP tool: classify_query")
 
-            # Step 1: Get relevant docs from knowledge base
-            print(f"\n[STEP 1: SEARCHING KNOWLEDGE BASE]")
-            print(f"  → Querying vector store for relevant documents...")
-        else:
-            # Still classify for consistency, just don't print
-            workflow_type, category = classify_query(user_message)
-
-        relevant_docs = self.search_knowledge_base(user_message)
+        try:
+            result = await self.mcp_session.call_tool("classify_query", {"query": user_message})
+            classification = json.loads(result.content[0].text)
+            workflow_type = classification.get("workflow_type", "direct_rag")
+            category = classification.get("category", "general_inquiry")
+        except Exception as e:
+            workflow_type = "direct_rag"
+            category = "general_inquiry"
+            if self.verbose:
+                print(f"  ✗ Classification failed: {e}, defaulting to direct_rag")
 
         if self.verbose:
-            print(f"  ✓ Found relevant documentation from knowledge base")
+            if workflow_type == "classification":
+                print(f"  ✓ Category: {category} (classification workflow)")
+            else:
+                print(f"  ✓ Category: {category} (direct RAG)")
 
-        # Step 2: Check if we need to search emails or orders
+        # Step 2: Search knowledge base via MCP
+        if self.verbose:
+            print(f"\n[STEP 2: SEARCHING KNOWLEDGE BASE VIA MCP]")
+            print(f"  → Calling MCP tool: search_knowledge")
+
+        try:
+            result = await self.mcp_session.call_tool("search_knowledge", {"query": user_message})
+            relevant_docs = result.content[0].text
+        except Exception as e:
+            relevant_docs = "No relevant documentation found."
+            if self.verbose:
+                print(f"  ✗ Knowledge search failed: {e}")
+
+        if self.verbose:
+            print(f"  ✓ Retrieved relevant documentation from knowledge base")
+
+        # Step 3: Check if we need to search emails or orders
         additional_context = ""
         query_lower = user_message.lower()
 
         # Check for email-related queries
         if any(word in query_lower for word in ["email", "conversation", "ticket", "support history"]) or "@" in user_message:
             if self.verbose:
-                print(f"\n[STEP 2: CHECKING MCP TOOLS - EMAILS]")
+                print(f"\n[STEP 3: CHECKING MCP TOOLS - EMAILS]")
                 print(f"  → Detected email-related query")
                 print(f"  → Calling MCP tool: search_emails")
             try:
@@ -381,7 +236,7 @@ class SyncAgent:
         # Check for order-related queries
         if any(word in query_lower for word in ["order", "shipping", "delivery", "tracking", "ord-"]):
             if self.verbose:
-                print(f"\n[STEP 2: CHECKING MCP TOOLS - ORDERS]")
+                print(f"\n[STEP 3: CHECKING MCP TOOLS - ORDERS]")
                 print(f"  → Detected order-related query")
                 print(f"  → Calling MCP tool: search_orders")
             try:
@@ -397,9 +252,9 @@ class SyncAgent:
                 if self.verbose:
                     print(f"  ✗ Order search failed: {e}")
 
-        # Step 3: Build prompt for LLM
+        # Step 4: Build prompt for LLM
         if self.verbose:
-            print(f"\n[STEP 3: GENERATING LLM RESPONSE]")
+            print(f"\n[STEP 4: GENERATING LLM RESPONSE]")
             print(f"  → Building augmented prompt with RAG context...")
             if self.conversation_history:
                 print(f"  → Including {len(self.conversation_history)} previous exchange(s) for context")
@@ -451,10 +306,10 @@ JSON Response:"""
             question=user_message
         )
 
-        # Step 4: Get LLM response
+        # Step 5: Get LLM response
         llm_response = self.query_llm(full_prompt)
 
-        # Step 5: Parse response (handle JSON wrapped in markdown)
+        # Step 6: Parse response (handle JSON wrapped in markdown)
         result = None
         try:
             result = json.loads(llm_response)
@@ -523,7 +378,7 @@ async def interactive_agent():
 
     try:
         # Try to connect to the MCP server; if it fails, keep going so
-        # users can still query the knowledge base.
+        # users can still see the error handling.
         await agent.connect_mcp()
     except Exception as e:
         print(f"Warning: couldn't connect to MCP server: {e}")
@@ -573,4 +428,3 @@ async def interactive_agent():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(interactive_agent())
-

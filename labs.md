@@ -50,11 +50,13 @@ ls -la
 code mcp_server_minimal.py
 ```
 
-   Scroll through and note the core parts:
+   Scroll through and note the core parts. Following MCP best practices, data operations (classification, knowledge search) live on the server alongside the email/order tools:
    - **Section 1**: DATA LOADING - reads in the sample emails and orders data from the JSON file
-   - **Section 2**: MCP SERVER SETUP - defines a tool to list all the tools and one to call a tool
-   - **Section 3**: START THE SERVER - allows the server to be started via stdio transport and provides main entry point
-  
+   - **Section 2**: KNOWLEDGE BASE SETUP - loads PDF documents from the knowledge base and creates a ChromaDB vector store for semantic search
+   - **Section 3**: CLASSIFICATION KEYWORDS - defines keyword lists for categorizing queries (account_security, device_troubleshooting, etc.)
+   - **Section 4**: MCP SERVER SETUP - defines 4 tools: `classify_query`, `search_knowledge`, `search_emails`, `search_orders`
+   - **Section 5**: START THE SERVER - allows the server to be started via stdio transport and provides main entry point
+
 <br><br>
 
 3. Now examine the RAG agent:
@@ -63,18 +65,14 @@ code mcp_server_minimal.py
 code rag_agent_minimal.py
 ```
 
-   Scroll through and note the core parts:
-   - **Section 1**: CONFIGURATION - Specifies model, KB path, and checks for Hugging Face token being in place
-   - **Section 2**: CLASSIFICATION KEYWORDS - Defines keyword lists for categorizing queries (account_security, device_troubleshooting, etc.) and the `classify_query()` function
-   - **Section 3**: AGENT CLASS - Implements a minimal RAG agent with initialization and functions for:
-      - `_load_pdf_documents()`: loading and parsing the knowledge base PDF documents
-      - `_setup_vector_store()`: creating/refreshing the ChromaDB vector db
+   Scroll through and note how the agent acts as a pure orchestrator - it doesn't access data directly but instead delegates all data operations to the MCP server:
+   - **Section 1**: CONFIGURATION - Specifies model and checks for Hugging Face token being in place
+   - **Section 2**: AGENT CLASS - Implements a minimal agent that orchestrates MCP tools and LLM:
       - `clear_history()`: clears conversation history to start a fresh conversation
-      - `connect_mcp()`: connect to MCP server for working with emails and orders (fires up server via stdio)
-      - `search_knowledge_base()`: search the vector db for relevant hits
+      - `connect_mcp()`: connect to MCP server (provides classification, knowledge search, email, and order tools)
       - `query_llm()`: takes the prompt (with RAG context) and queries the Hugging Face model
-      - `query()`: the workhorse - classifies the query, searches KB for relevant info, checks to see if need emails/order info, builds augmented prompt (including conversation history for follow-up context), sends it over to LLM and parses and delivers response
-   - **Section 4**: Interactive mode when run directly
+      - `query()`: the workhorse - calls MCP to classify the query, calls MCP to search KB for relevant info, calls MCP to check for emails/order info, builds augmented prompt (including conversation history for follow-up context), sends it over to LLM and parses and delivers response
+   - **Section 3**: Interactive mode when run directly
 
 <br><br>
 
@@ -95,9 +93,10 @@ python rag_agent_minimal.py
 
 <br><br>
 
-5. Observe the workflow output:
-   - Searching the knowledge base
-   - Getting info from orders (if needed)
+5. Observe the workflow output - notice how every data operation goes through an MCP tool call:
+   - Classifying the query via MCP
+   - Searching the knowledge base via MCP
+   - Getting info from emails/orders via MCP (if needed)
    - Generating response with LLM
 
 
