@@ -1,6 +1,6 @@
 # Capstone Project: Building a Customer Support Chatbot
 ## Applied AI Engineering for the Enterprise
-## Revision 1.10 - 02/04/26
+## Revision 1.11 - 02/12/26
 
 **Prerequisites:**
 - Completed Labs 1-5 in the main workshop (MCP fundamentals, classification server, RAG agent)
@@ -89,7 +89,7 @@ python rag_agent_minimal.py
 
 <br>
 
-![Running the agent](./images/ae78.png?raw=true "Running the agent")
+![Running the agent](./images/aec1.png?raw=true "Running the agent")
 
 <br><br>
 
